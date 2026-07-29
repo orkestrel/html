@@ -368,6 +368,7 @@ export function scanRawText(
 export function parseDocument(html: string): HTMLDocument {
 	const source = html.replace(/\r\n?/g, '\n').replaceAll('\0', '\uFFFD')
 	const children: HTMLNode[] = []
+	const siblingLists: HTMLNode[][] = [children]
 	const stack: { readonly name: string; readonly children: HTMLNode[] }[] = [{ name: '', children }]
 	const overflow: string[] = []
 	let index = 0
@@ -506,7 +507,30 @@ export function parseDocument(html: string): HTMLDocument {
 			children: elementChildren,
 		}
 		current.children.push(element)
+		siblingLists.push(elementChildren)
 		stack.push({ name: tag.name, children: elementChildren })
+	}
+	for (const siblings of siblingLists) {
+		const text: string[] = []
+		let write = 0
+		for (const sibling of siblings) {
+			if (sibling.category === 'text') {
+				text.push(sibling.value)
+				continue
+			}
+			if (text.length > 0) {
+				siblings[write] = { category: 'text', value: text.join('') }
+				write += 1
+				text.length = 0
+			}
+			siblings[write] = sibling
+			write += 1
+		}
+		if (text.length > 0) {
+			siblings[write] = { category: 'text', value: text.join('') }
+			write += 1
+		}
+		siblings.length = write
 	}
 	return { category: 'document', children }
 }

@@ -1,4 +1,5 @@
 import type { HTMLDocument, HTMLNode } from '@src/core'
+import { MAX_DEPTH, parseDocument } from '@src/core'
 
 // ── Call recorder (a real callback, not a mock) ──────────────────────────────
 //
@@ -56,6 +57,57 @@ export function isBrowserVuePath(path: string): boolean {
  */
 export function buildDeepHTMLInput(depth: number, leaf = 'leaf'): string {
 	return `${'<div>'.repeat(depth)}${leaf}${'</div>'.repeat(depth)}`
+}
+
+/**
+ * Build a representative parser-produced corpus for HTML roundtrip laws.
+ *
+ * @returns Documents covering realistic pages and every parser recovery family
+ */
+export function buildHTMLRoundtripCorpus(): readonly HTMLDocument[] {
+	const sources = [
+		'',
+		'plain text &amp; entities',
+		'<!DOCTYPE html><main><article><h1>Title</h1><p>Lead <strong>bold</strong>.</p></article></main>',
+		'<html lang=en><head><title>A &amp; B</title></head><body><nav>Menu</nav><main><p>Body<br>line</p></main></body></html>',
+		'<p>a<br>b</br>c<img src=x></p>',
+		'<script>if (a < b) &amp;<style>x</style></SCRIPT><style><b>&copy;</b></style>',
+		'<title>&lt;b&gt;&amp;</TITLE><textarea>&copy;</textarea>',
+		'<ul><li>a<li>b</ul>',
+		'<dl><dt>a<dd>b<dt>c</dl>',
+		'<select><option>a<option>b<optgroup><option>c</select>',
+		'<ruby><rt>a<rp>b<rt>c</ruby>',
+		'<p>one<div>two</div><table><tr><td>x<td>y<tr><th>z</table>',
+		'<b><i>x</b>y</i>',
+		'</p>kept</unknown>',
+		'<my-widget data-x=1>hello</my-widget>',
+		'<DIV ID=first id=second CLASS="x">x</DIV>',
+		'<div disabled title="oops><p>safe</p>',
+		'1 < 2 <<x',
+		'<?work?><!ENTITY x><![CDATA[a<b]]>',
+		'a<!--open',
+		'<div>kept<span',
+		buildDeepHTMLInput(MAX_DEPTH + 20, 'deep text'),
+		'<p>a\r\nb\rc\0d</p>',
+		'before<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "legacy.dtd">after',
+		'<a>one<b>two</a>three</b><custom>four',
+		'<script>unterminated <b>&amp;',
+	]
+	return sources.map((source) => parseDocument(source))
+}
+
+/**
+ * Build a hand-authored document deeper than the parser permits.
+ *
+ * @param depth - The number of nested elements
+ * @returns A deep document ending in one text node
+ */
+export function buildDeepHTMLDocument(depth: number): HTMLDocument {
+	let node: HTMLNode = { category: 'text', value: 'leaf' }
+	for (let index = 0; index < depth; index += 1) {
+		node = { category: 'element', name: 'div', attributes: [], children: [node] }
+	}
+	return { category: 'document', children: [node] }
 }
 
 /**
@@ -155,6 +207,29 @@ export function extractHTMLText(document: HTMLDocument): string {
 		}
 	}
 	return text
+}
+
+/**
+ * Detect whether any sibling list contains adjacent text nodes.
+ *
+ * @param document - The document to inspect
+ * @returns `true` when the parser normalization invariant is violated
+ */
+export function hasAdjacentHTMLText(document: HTMLDocument): boolean {
+	const pending: HTMLNode[] = [document]
+	while (pending.length > 0) {
+		const node = pending.pop()
+		if (node === undefined || (node.category !== 'document' && node.category !== 'element')) {
+			continue
+		}
+		let previous = false
+		for (const child of node.children) {
+			if (previous && child.category === 'text') return true
+			previous = child.category === 'text'
+			pending.push(child)
+		}
+	}
+	return false
 }
 
 /**

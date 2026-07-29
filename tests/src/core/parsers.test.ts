@@ -11,7 +11,12 @@ import {
 	scanTag,
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { buildDeepHTMLInput, extractHTMLText, measureHTMLDepth } from '../../setup.js'
+import {
+	buildDeepHTMLInput,
+	extractHTMLText,
+	hasAdjacentHTMLText,
+	measureHTMLDepth,
+} from '../../setup.js'
 
 describe('scanning pieces', () => {
 	it('decodeEntities decodes decimal, hexadecimal, invalid-scalar, and named references', () => {
@@ -120,13 +125,24 @@ describe('parseDocument recovery table', () => {
 			'text',
 			'element',
 			'text',
-			'text',
 			'element',
 		])
 		const elements = paragraph.children.filter(
 			(node): node is ElementNode => node.category === 'element',
 		)
 		expect(elements.map((node) => node.children)).toEqual([[], []])
+	})
+
+	it('coalesces text separated only by a discarded void close tag', () => {
+		const document = parseDocument('<p>a<br>b</br>c</p>')
+		const paragraph = document.children[0]
+		if (paragraph?.category !== 'element') throw new Error('expected paragraph')
+		expect(paragraph.children).toEqual([
+			{ category: 'text', value: 'a' },
+			{ category: 'element', name: 'br', attributes: [], children: [] },
+			{ category: 'text', value: 'bc' },
+		])
+		expect(hasAdjacentHTMLText(document)).toBe(false)
 	})
 
 	it('script and style bodies are one verbatim text child with no nested tag scan', () => {
@@ -344,6 +360,10 @@ describe('parseDocument hostile corpus totality', () => {
 			expect(document === undefined ? false : isHTMLDocument(document)).toBe(true)
 		})
 	}
+
+	it('never emits adjacent text siblings across the hostile corpus', () => {
+		for (const source of cases) expect(hasAdjacentHTMLText(parseDocument(source))).toBe(false)
+	})
 
 	it('handles a 100,000-tag flood without throwing and returns a guard-valid document', () => {
 		const source = '<div>'.repeat(100_000)
