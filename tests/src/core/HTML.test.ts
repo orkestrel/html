@@ -12,8 +12,10 @@ import {
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import {
 	buildDeepHTMLDocument,
+	buildEncodedHTMLSchemeCorpus,
 	buildHTMLPageInput,
 	buildHTMLRoundtripCorpus,
+	buildHTMLSanitizerCorpus,
 	collectStream,
 	hasAdjacentHTMLText,
 } from '../../setup.js'
@@ -350,6 +352,20 @@ describe('HTML - sanitize floor', () => {
 		)
 	})
 
+	it('proves each replacement allowlist cannot lower the sanitizer floor', () => {
+		const page = new HTML(
+			'<p title="removed" onclick="x()">keep</p><script>drop</script>' +
+				'<a href="javascript:x">link</a>',
+		)
+		expect(renderHTML(page.sanitize({ attributes: new Set(['onclick']) }).document)).toBe(
+			'<p>keep</p><a>link</a>',
+		)
+		expect(renderHTML(page.sanitize({ elements: new Set(['script']) }).document)).toBe('keeplink')
+		expect(renderHTML(page.sanitize({ schemes: new Set(['javascript']) }).document)).toBe(
+			'<p title="removed">keep</p><a>link</a>',
+		)
+	})
+
 	it('unwraps a safe element outside the allowlist and keeps its content', () => {
 		const page = new HTML('<my-widget><p>kept</p></my-widget>')
 		expect(renderHTML(page.sanitize().document)).toBe('<p>kept</p>')
@@ -416,6 +432,92 @@ describe('HTML - sanitize laws', () => {
 		const cyclic = new HTML({ category: 'document', children: [element] })
 		expect(() => cyclic.sanitize()).not.toThrow()
 	})
+
+	it('rejects a doubly encoded scheme in a hand-built AST', () => {
+		const document: HTMLDocument = {
+			category: 'document',
+			children: [
+				{
+					category: 'element',
+					name: 'a',
+					attributes: [{ name: 'href', value: '&amp;#106;avascript:x' }],
+					children: [{ category: 'text', value: 'link' }],
+				},
+			],
+		}
+		const clean = new HTML(document).sanitize().document
+		expect(renderHTML(clean)).toBe('<a>link</a>')
+		expect(new HTML(parseDocument(renderHTML(clean))).sanitize().document).toEqual(clean)
+	})
+
+	it('preserves the sanitize reparse fixpoint across encoded-scheme families', () => {
+		for (const value of buildEncodedHTMLSchemeCorpus()) {
+			const document: HTMLDocument = {
+				category: 'document',
+				children: [
+					{
+						category: 'element',
+						name: 'a',
+						attributes: [{ name: 'href', value }],
+						children: [{ category: 'text', value: 'link' }],
+					},
+				],
+			}
+			const clean = new HTML(document).sanitize().document
+			expect(JSON.stringify(clean)).not.toContain('"name":"href"')
+			expect(new HTML(parseDocument(renderHTML(clean))).sanitize().document).toEqual(clean)
+		}
+	})
+})
+
+describe('HTML - adversarial sanitizer corpus', () => {
+	it('removes every dangerous construct from both the AST and rendered HTML', () => {
+		for (const threat of buildHTMLSanitizerCorpus()) {
+			const clean = new HTML(threat.source).sanitize().document
+			const ast = JSON.stringify(clean).toLowerCase()
+			const html = renderHTML(clean).toLowerCase()
+			for (const token of threat.ast) {
+				expect({
+					group: threat.group,
+					name: threat.name,
+					token,
+					present: ast.includes(token),
+				}).toEqual({ group: threat.group, name: threat.name, token, present: false })
+			}
+			for (const token of threat.html) {
+				expect({
+					group: threat.group,
+					name: threat.name,
+					token,
+					present: html.includes(token),
+				}).toEqual({ group: threat.group, name: threat.name, token, present: false })
+			}
+		}
+	})
+
+	it('keeps the full corpus at the sanitize and serialize-reparse fixpoints', () => {
+		for (const threat of buildHTMLSanitizerCorpus()) {
+			const once = new HTML(threat.source).sanitize().document
+			expect({ name: threat.name, document: new HTML(once).sanitize().document }).toEqual({
+				name: threat.name,
+				document: once,
+			})
+			expect({
+				name: threat.name,
+				document: new HTML(parseDocument(renderHTML(once))).sanitize().document,
+			}).toEqual({ name: threat.name, document: once })
+		}
+	})
+
+	it('neutralizes markdown-shaped javascript through the distilled projection path', () => {
+		const distilled = new HTML(
+			'<p>[x](javascript:alert(1)) <a href="javascript:alert(2)">linked</a></p>',
+		).distill()
+		const markdown = renderMarkdown(distilled.document)
+		expect(markdown).toContain('\\[x\\](javascript:alert(1))')
+		expect(markdown).not.toContain('[x](javascript:')
+		expect(markdown).not.toContain('[linked](javascript:')
+	})
 })
 
 describe('HTML - distill', () => {
@@ -480,6 +582,16 @@ describe('HTML - distill', () => {
 		expect(renderHTML(page.distill().document)).toBe('<strong>x</strong>')
 	})
 
+	it('does not broaden wrapper collapse beyond attribute-free same-name single children', () => {
+		const page = new HTML(
+			'<main><strong class="outer"><strong>x</strong></strong>' +
+				'<strong><em>y</em></strong></main>',
+		)
+		expect(renderHTML(page.distill().document)).toBe(
+			'<strong class="outer"><strong>x</strong></strong><strong><em>y</em></strong>',
+		)
+	})
+
 	it('collapses whitespace outside pre and code and preserves it inside', () => {
 		const page = new HTML('<main><p>a   b</p><pre><code>a   b</code></pre></main>')
 		expect(renderHTML(page.distill().document)).toBe('<p>a b</p><pre><code>a   b</code></pre>')
@@ -493,6 +605,21 @@ describe('HTML - distill', () => {
 	it('sanitizes before extracting, so no unsafe content survives the pass', () => {
 		const page = new HTML('<main><p onclick="x()">a<script>bad</script></p></main>')
 		expect(renderHTML(page.distill().document)).toBe('<p>a</p>')
+	})
+
+	it('prunes regions before sanitizing and extracting the sole surviving content region', () => {
+		const page = new HTML(
+			'<nav><main><p>noise</p></main></nav>' +
+				'<main hidden><p>hidden</p></main><article><p>kept</p></article>',
+		)
+		expect(renderHTML(page.distill().document)).toBe('<p>kept</p>')
+	})
+
+	it('is idempotent on its own output', () => {
+		const page = new HTML(buildHTMLPageInput())
+		const options = { base: 'https://example.test/docs/index.html' }
+		const once = page.distill(options).document
+		expect(new HTML(once).distill(options).document).toEqual(once)
 	})
 
 	it('drops a doctype, which is structure rather than content', () => {

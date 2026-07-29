@@ -343,6 +343,12 @@ export const BOILERPLATE_ELEMENTS: ReadonlySet<string> = Object.freeze(
 )
 
 /**
+ * The content regions `distill` tries in priority order when re-rooting a document.
+ * A region qualifies only when it occurs exactly once.
+ */
+export const REGION_ELEMENTS: readonly string[] = Object.freeze(['main', 'article'])
+
+/**
  * The HTML 4.01 named character references, keyed by name without its `&` and `;`, plus
  * XML's `apos` - the set the parser decodes in text, attribute values, and literal-text
  * elements. A name outside this table stays literal, exactly as written, because

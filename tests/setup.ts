@@ -154,6 +154,275 @@ export function buildHTMLRoundtripCorpus(): readonly HTMLDocument[] {
 }
 
 /**
+ * One adversarial sanitizer input and the tokens whose absence proves its dangerous
+ * construct was removed from both the AST and its HTML serialization.
+ */
+export interface HTMLSanitizerCase {
+	/** The threat family used to inventory corpus coverage. */
+	readonly group: string
+	/** The behavior-specific case name. */
+	readonly name: string
+	/** The hostile HTML source. */
+	readonly source: string
+	/** Lowercase tokens that must not occur in the sanitized AST. */
+	readonly ast: readonly string[]
+	/** Lowercase tokens that must not occur in the rendered sanitized HTML. */
+	readonly html: readonly string[]
+}
+
+/**
+ * Build the adversarial corpus for the sanitizer's security boundary.
+ *
+ * @returns Hostile inputs spanning attributes, URL schemes, unsafe elements, parser
+ * recovery, raw-text boundaries, and markdown-shaped text
+ */
+export function buildHTMLSanitizerCorpus(): readonly HTMLSanitizerCase[] {
+	return [
+		{
+			group: 'attributes',
+			name: 'mixed-case handlers',
+			source: '<p OnClIcK="x()" ONMOUSEOVER="y()" oNfOcUs="z()" title="safe">text</p>',
+			ast: ['"name":"onclick"', '"name":"onmouseover"', '"name":"onfocus"'],
+			html: ['onclick', 'onmouseover', 'onfocus'],
+		},
+		{
+			group: 'attributes',
+			name: 'handler inside an allowed link',
+			source: '<a href="/safe" onclick="x()">link</a>',
+			ast: ['"name":"onclick"'],
+			html: ['onclick'],
+		},
+		{
+			group: 'attributes',
+			name: 'style and namespace channels',
+			source: '<p style="color:red" xlink:href="#x" xmlns:xlink="urn:x" title="safe">text</p>',
+			ast: ['"name":"style"', '"name":"xlink:href"', '"name":"xmlns:xlink"'],
+			html: [' style=', 'xlink:', 'xmlns:'],
+		},
+		{
+			group: 'attributes',
+			name: 'hostile attribute names',
+			source: '<p __proto__="x" constructor="y" on\0click="z">text</p>',
+			ast: ['"name":"__proto__"', '"name":"constructor"', '"name":"on\uFFFDclick"'],
+			html: ['__proto__', 'constructor', 'on\uFFFDclick'],
+		},
+		{
+			group: 'attributes',
+			name: 'duplicate href keeps the dangerous first value',
+			source: '<a href="javascript:x" href="/safe">link</a>',
+			ast: ['"name":"href"', 'javascript:'],
+			html: ['href=', 'javascript:'],
+		},
+		{
+			group: 'urls',
+			name: 'decimal entity scheme',
+			source: '<a href="&#106;avascript:x">link</a>',
+			ast: ['javascript:'],
+			html: ['javascript:'],
+		},
+		{
+			group: 'urls',
+			name: 'hexadecimal entity scheme',
+			source: '<a href="&#x6A;avascript:x">link</a>',
+			ast: ['javascript:'],
+			html: ['javascript:'],
+		},
+		{
+			group: 'urls',
+			name: 'doubly encoded entity scheme',
+			source: '<a href="&amp;#106;avascript:x">link</a>',
+			ast: ['&#106;avascript:'],
+			html: ['&amp;#106;avascript:'],
+		},
+		{
+			group: 'urls',
+			name: 'control-spliced scheme',
+			source: '<a href="java\tscript:x">tab</a><a href="java\nscript:y">line</a>',
+			ast: ['javascript:'],
+			html: ['javascript:'],
+		},
+		{
+			group: 'urls',
+			name: 'data html scheme',
+			source: '<a href="data:text/html,&lt;script&gt;x&lt;/script&gt;">link</a>',
+			ast: ['data:text/html'],
+			html: ['data:text/html'],
+		},
+		{
+			group: 'urls',
+			name: 'vbscript scheme',
+			source: '<a href="vbscript:run">link</a>',
+			ast: ['vbscript:'],
+			html: ['vbscript:'],
+		},
+		{
+			group: 'urls',
+			name: 'file scheme',
+			source: '<a href="file:///tmp/value">link</a>',
+			ast: ['file:'],
+			html: ['file:'],
+		},
+		{
+			group: 'urls',
+			name: 'slash protocol-relative URL',
+			source: '<a href="//evil.test/path">link</a>',
+			ast: ['evil.test'],
+			html: ['evil.test'],
+		},
+		{
+			group: 'urls',
+			name: 'backslash protocol-relative URL',
+			source: '<a href="\\\\evil.test\\path">link</a>',
+			ast: ['evil.test'],
+			html: ['evil.test'],
+		},
+		{
+			group: 'urls',
+			name: 'mixed-slash protocol-relative URL',
+			source: '<a href="/\\evil.test/path">link</a>',
+			ast: ['evil.test'],
+			html: ['evil.test'],
+		},
+		{
+			group: 'elements',
+			name: 'svg handler',
+			source: '<svg onload="x()"><circle></circle></svg><p>safe</p>',
+			ast: ['"name":"svg"', '"name":"onload"'],
+			html: ['<svg', 'onload'],
+		},
+		{
+			group: 'elements',
+			name: 'svg script subtree',
+			source: '<svg><script>alert(1)</script></svg><p>safe</p>',
+			ast: ['"name":"svg"', '"name":"script"'],
+			html: ['<svg', '<script'],
+		},
+		{
+			group: 'elements',
+			name: 'math link',
+			source: '<math href="javascript:x"><mi>x</mi></math><p>safe</p>',
+			ast: ['"name":"math"', 'javascript:'],
+			html: ['<math', 'javascript:'],
+		},
+		{
+			group: 'elements',
+			name: 'iframe srcdoc',
+			source: '<iframe srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;"></iframe><p>safe</p>',
+			ast: ['"name":"iframe"', '"name":"srcdoc"'],
+			html: ['<iframe', 'srcdoc'],
+		},
+		{
+			group: 'elements',
+			name: 'object data',
+			source: '<object data="https://evil.test/payload">fallback</object><p>safe</p>',
+			ast: ['"name":"object"', '"name":"data"'],
+			html: ['<object', ' data='],
+		},
+		{
+			group: 'elements',
+			name: 'embed source',
+			source: '<embed src="https://evil.test/payload"><p>safe</p>',
+			ast: ['"name":"embed"', '"name":"src"'],
+			html: ['<embed', ' src='],
+		},
+		{
+			group: 'elements',
+			name: 'applet subtree',
+			source: '<applet code="evil">fallback</applet><p>safe</p>',
+			ast: ['"name":"applet"'],
+			html: ['<applet'],
+		},
+		{
+			group: 'elements',
+			name: 'template script subtree',
+			source: '<template><script>alert(1)</script></template><p>safe</p>',
+			ast: ['"name":"template"', '"name":"script"'],
+			html: ['<template', '<script'],
+		},
+		{
+			group: 'elements',
+			name: 'base URL mutation',
+			source: '<base href="https://evil.test/"><p>safe</p>',
+			ast: ['"name":"base"', 'evil.test'],
+			html: ['<base', 'evil.test'],
+		},
+		{
+			group: 'elements',
+			name: 'form action',
+			source: '<form action="javascript:x"><p>submit</p></form><p>safe</p>',
+			ast: ['"name":"form"', 'javascript:'],
+			html: ['<form', 'javascript:'],
+		},
+		{
+			group: 'recovery',
+			name: 'raw close sequence in allowed text',
+			source: '<p>&lt;/script&gt;<strong>safe</strong></p>',
+			ast: ['"name":"script"'],
+			html: ['</script>'],
+		},
+		{
+			group: 'recovery',
+			name: 'script-shaped textarea literal',
+			source: '<textarea>&lt;script&gt;alert(1)&lt;/script&gt;</textarea><p>safe</p>',
+			ast: ['"name":"textarea"', '<script>'],
+			html: ['<textarea', '<script>'],
+		},
+		{
+			group: 'recovery',
+			name: 'unclosed script swallows the tail',
+			source: '<p>before</p><script>alert(1)<p>swallowed tail</p>',
+			ast: ['"name":"script"', 'swallowed tail'],
+			html: ['<script', 'swallowed tail'],
+		},
+		{
+			group: 'recovery',
+			name: 'deep unsafe subtree',
+			source: `${'<div>'.repeat(32)}<iframe src="/evil">bad</iframe>${'</div>'.repeat(32)}`,
+			ast: ['"name":"iframe"', '"name":"src"'],
+			html: ['<iframe', ' src='],
+		},
+		{
+			group: 'recovery',
+			name: 'unsafe subtree under implied-close recovery',
+			source: '<ul><li>safe<script>bad</script><li>tail</ul>',
+			ast: ['"name":"script"', '"value":"bad"'],
+			html: ['<script', '>bad<'],
+		},
+		{
+			group: 'projection',
+			name: 'markdown-shaped javascript link',
+			source: '<p>[x](javascript:alert(1)) <a href="javascript:alert(2)">linked</a></p>',
+			ast: ['"name":"href"'],
+			html: ['href='],
+		},
+	]
+}
+
+/**
+ * Build encoded forms of every hard-banned URL scheme.
+ *
+ * @returns Direct, numeric, hexadecimal, and multiply encoded scheme values
+ */
+export function buildEncodedHTMLSchemeCorpus(): readonly string[] {
+	const values: string[] = []
+	for (const scheme of ['javascript', 'data', 'vbscript', 'file']) {
+		const first = scheme.codePointAt(0)
+		if (first === undefined) continue
+		const rest = scheme.slice(1)
+		const decimal = `&#${first};${rest}:payload`
+		const hexadecimal = `&#x${first.toString(16)};${rest}:payload`
+		values.push(
+			`${scheme}:payload`,
+			decimal,
+			hexadecimal,
+			`&amp;${decimal.slice(1)}`,
+			`&amp;amp;${hexadecimal.slice(1)}`,
+		)
+	}
+	return values
+}
+
+/**
  * Build a hand-authored document deeper than the parser permits.
  *
  * @param depth - The number of nested elements

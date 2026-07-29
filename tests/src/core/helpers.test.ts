@@ -75,6 +75,12 @@ describe('HTML escaping and URL helpers', () => {
 		}
 	})
 
+	it('decodes URL entities to a bounded fixpoint and fails closed beyond the bound', () => {
+		expect(sanitizeURL('&amp;#106;avascript:x', SAFE_URL_SCHEMES)).toBe('')
+		expect(sanitizeURL('&amp;amp;#x6A;avascript:x', SAFE_URL_SCHEMES)).toBe('')
+		expect(sanitizeURL(`&${'amp;'.repeat(10)}#106;avascript:x`, SAFE_URL_SCHEMES)).toBe('')
+	})
+
 	it('resolves WHATWG URLs and preserves an unresolvable value', () => {
 		expect(resolveURL('../asset.png', 'https://example.test/docs/page')).toBe(
 			'https://example.test/asset.png',
@@ -188,6 +194,23 @@ describe('sanitizeAttributes', () => {
 			{ name: 'href', value: 'https://example.test/ab' },
 		])
 		expect(sanitizeAttributes(element, SAFE_ATTRIBUTES, new Set(['mailto']))).toEqual([])
+	})
+
+	it('deduplicates hand-built attributes with conservative first-wins semantics', () => {
+		const element: ElementNode = {
+			category: 'element',
+			name: 'a',
+			attributes: [
+				{ name: 'href', value: 'javascript:x' },
+				{ name: 'HREF', value: '/safe' },
+				{ name: 'title', value: 'first' },
+				{ name: 'TITLE', value: 'second' },
+			],
+			children: [],
+		}
+		expect(sanitizeAttributes(element, SAFE_ATTRIBUTES, SAFE_URL_SCHEMES)).toEqual([
+			{ name: 'title', value: 'first' },
+		])
 	})
 })
 

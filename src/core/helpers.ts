@@ -4,6 +4,7 @@ import type {
 	HTMLDocument,
 	HTMLHandlers,
 	HTMLNode,
+	HTMLPruneHandler,
 	HTMLRewriteHandler,
 } from './types.js'
 import {
@@ -69,14 +70,30 @@ export function escapeMarkdown(value: string): string {
 /**
  * Decode and inspect a URL against an explicit scheme allowlist and a fixed dangerous floor.
  *
+ * @remarks
+ * Entity decoding repeats to a small bounded fixpoint so a hand-built AST cannot defer a
+ * dangerous scheme to a later serialize-reparse pass. Input that still changes after the
+ * bound fails closed.
+ *
  * @param value - The source URL, possibly containing HTML entities or obfuscating controls
  * @param schemes - The allowed lowercase absolute schemes
  * @returns The decoded, control-free URL, or `''` when it is unsafe
  */
 export function sanitizeURL(value: string, schemes: ReadonlySet<string>): string {
 	try {
+		let decoded = value
+		let stable = false
+		for (let count = 0; count < 8; count += 1) {
+			const next = decodeEntities(decoded)
+			if (next === decoded) {
+				stable = true
+				break
+			}
+			decoded = next
+		}
+		if (!stable && decodeEntities(decoded) !== decoded) return ''
 		let cleaned = ''
-		for (const character of decodeEntities(value)) {
+		for (const character of decoded) {
 			const point = character.codePointAt(0)
 			if (point !== undefined && point > 0x20 && !(point >= 0x7f && point <= 0x9f)) {
 				cleaned += character
@@ -152,7 +169,8 @@ export function attributeOf(node: ElementNode, name: string): string | undefined
  * (`style`, `srcdoc`), a namespaced or `xmlns` name, and a structurally unwritable name are
  * always removed; a {@link URL_ATTRIBUTES} value is passed through {@link sanitizeURL} and
  * the attribute is REMOVED - not emptied - when nothing safe survives. Names are
- * ASCII-lowercased, source order is preserved, and a valueless attribute stays valueless.
+ * ASCII-lowercased, a duplicate keeps its first occurrence, source order is preserved, and
+ * a valueless attribute stays valueless.
  *
  * @param node - The element whose attributes are being filtered
  * @param attributes - The allowed lowercase attribute names
@@ -166,8 +184,11 @@ export function sanitizeAttributes(
 ): readonly HTMLAttribute[] {
 	try {
 		const kept: HTMLAttribute[] = []
+		const names = new Set<string>()
 		for (const attribute of node.attributes) {
 			const name = attribute.name.toLowerCase()
+			if (names.has(name)) continue
+			names.add(name)
 			if (
 				name.length === 0 ||
 				/[\s"'/:<=>]/.test(name) ||
@@ -1094,10 +1115,7 @@ export function extractRegion(document: HTMLDocument, names: readonly string[]):
  * @param prune - The bottom-up handler mapping one node to the nodes that replace it
  * @returns The rebuilt document, or the input document if pruning throws
  */
-export function pruneDocument(
-	document: HTMLDocument,
-	prune: (node: HTMLNode) => readonly HTMLNode[],
-): HTMLDocument {
+export function pruneDocument(document: HTMLDocument, prune: HTMLPruneHandler): HTMLDocument {
 	try {
 		const stack: {
 			readonly node: HTMLNode

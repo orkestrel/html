@@ -152,6 +152,15 @@ export interface HTMLHandlers<T> {
 export type HTMLRewriteHandler = (node: HTMLNode) => HTMLNode
 
 /**
+ * A bottom-up pruning handler applied by `pruneDocument` - receives one node whose
+ * children have already been pruned and returns the nodes that replace it.
+ *
+ * @param node - The node to prune, with its children already pruned
+ * @returns No nodes to drop it, its children to unwrap it, or replacement nodes
+ */
+export type HTMLPruneHandler = (node: HTMLNode) => readonly HTMLNode[]
+
+/**
  * The options for {@link HTMLInterface.sanitize}. Each allowlist key REPLACES its
  * default rather than extending it, so a caller who passes one narrows or redirects that
  * one axis and leaves the others alone.

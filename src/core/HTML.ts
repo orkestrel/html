@@ -10,6 +10,7 @@ import type {
 import {
 	BOILERPLATE_ELEMENTS,
 	CONTENT_ELEMENTS,
+	REGION_ELEMENTS,
 	SAFE_ATTRIBUTES,
 	SAFE_ELEMENTS,
 	SAFE_URL_SCHEMES,
@@ -250,7 +251,7 @@ export class HTML implements HTMLInterface {
 		const elements = options?.elements ?? CONTENT_ELEMENTS
 		const base = options?.base
 		const visible = pruneDocument(this.#document, (node) => this.#pruneRegion(node, boilerplate))
-		const rooted = extractRegion(new HTML(visible).sanitize().document, ['main', 'article'])
+		const rooted = extractRegion(new HTML(visible).sanitize().document, REGION_ELEMENTS)
 		return new HTML(pruneDocument(rooted, (node) => this.#keepContent(node, elements, base)))
 	}
 
