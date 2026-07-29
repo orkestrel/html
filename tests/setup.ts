@@ -1,5 +1,7 @@
 import type { HTMLDocument, HTMLNode } from '@src/core'
-import { MAX_DEPTH, parseDocument } from '@src/core'
+import type { MarkdownDocument } from '@orkestrel/markdown'
+import { MAX_DEPTH, parseDocument, renderMarkdown } from '@src/core'
+import { parseDocument as parseMarkdown } from '@orkestrel/markdown'
 
 // ── Call recorder (a real callback, not a mock) ──────────────────────────────
 //
@@ -97,6 +99,72 @@ export function buildHTMLPageInput(): string {
 		'<footer>Footer</footer>',
 		'</body></html>',
 	].join('')
+}
+
+/** The HTML fixtures spanning every supported markdown projection family. */
+export interface MarkdownProjectionInputs {
+	readonly headings: string
+	readonly lists: string
+	readonly quote: string
+	readonly code: string
+	readonly inline: string
+	readonly table: string
+}
+
+/**
+ * Build HTML fixtures for the complete markdown projection subset.
+ *
+ * @returns One fixture per related projection family
+ */
+export function buildMarkdownProjectionInputs(): MarkdownProjectionInputs {
+	return {
+		headings:
+			'<h1>One</h1><h2>Two</h2><h3>Three</h3><h4>Four</h4>' +
+			'<h5>Five</h5><h6>Six</h6><p>Body</p>',
+		lists:
+			'<ul><li>one<ul><li>two</li></ul></li><li>three</li></ul>' +
+			'<ol start="3"><li>four<ol><li>five</li></ol></li></ol>',
+		quote: '<blockquote><p>quoted</p><ul><li>nested</li></ul></blockquote>',
+		code: '<pre><code class="language-ts">const value = 1</code></pre>',
+		inline:
+			'<p><a href="https://example.test/guide">guide</a> ' +
+			'<strong>strong</strong> <em>emphasis</em> <code>inline</code><br>' +
+			'next <img alt="portrait" src="https://example.test/image.png"></p>',
+		table:
+			'<hr><table><thead><tr><th>Name</th><th>Value</th></tr></thead>' +
+			'<tbody><tr><td>Alpha|Beta</td><td>1</td></tr><tr><td>Gamma</td><td>2</td></tr>' +
+			'</tbody></table>',
+	}
+}
+
+/**
+ * Build a realistic page for the sanitize, distill, and markdown interop pipeline.
+ *
+ * @returns A whole page with boilerplate, content, safe links, and an unsafe link
+ */
+export function buildMarkdownPipelineInput(): string {
+	return [
+		'<!DOCTYPE html>',
+		'<html><head><title>Noise</title><script>track()</script></head><body>',
+		'<nav><a href="/menu">Menu</a></nav>',
+		'<main><article><h1>Interop</h1>',
+		'<p>Read the <a href="../guide">guide</a> and ',
+		'<a href="javascript:alert(1)">unsafe</a> link.</p>',
+		'<ul><li>Alpha</li><li>Beta</li></ul>',
+		'</article></main>',
+		'<aside>Promoted</aside><footer>Copyright</footer>',
+		'</body></html>',
+	].join('')
+}
+
+/**
+ * Parse HTML, project it with this package, then parse that output with markdown.
+ *
+ * @param source - The HTML fixture
+ * @returns The real markdown parser's AST for the HTML projection
+ */
+export function parseMarkdownProjection(source: string): MarkdownDocument {
+	return parseMarkdown(renderMarkdown(parseDocument(source)))
 }
 
 /** Whether a repository-relative Vue SFC belongs to the private browser application. */

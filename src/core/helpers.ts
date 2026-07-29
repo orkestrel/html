@@ -45,7 +45,9 @@ export function encodeAttribute(value: string): string {
  */
 export function escapeMarkdown(value: string): string {
 	let escaped = ''
-	for (const character of value) {
+	for (let index = 0; index < value.length; index += 1) {
+		const character = value[index] ?? ''
+		const atLineStart = index === 0 || value[index - 1] === '\n'
 		if (
 			character === '\\' ||
 			character === '*' ||
@@ -53,16 +55,32 @@ export function escapeMarkdown(value: string): string {
 			character === '`' ||
 			character === '[' ||
 			character === ']' ||
-			character === '#' ||
-			character === '>' ||
-			character === '|' ||
-			character === '+' ||
-			character === '-'
+			character === '|'
 		) {
 			escaped += `\\${character}`
-		} else {
-			escaped += character
+			continue
 		}
+		if (atLineStart) {
+			if (character === '#' || character === '>') {
+				escaped += `\\${character}`
+				continue
+			}
+			if ((character === '-' || character === '+') && value[index + 1] === ' ') {
+				escaped += `\\${character}`
+				continue
+			}
+			if (/[0-9]/.test(character)) {
+				let end = index
+				while (end < value.length && /[0-9]/.test(value[end] ?? '')) end += 1
+				const marker = value[end]
+				if ((marker === '.' || marker === ')') && value[end + 1] === ' ') {
+					escaped += `${value.slice(index, end)}\\${marker}`
+					index = end
+					continue
+				}
+			}
+		}
+		escaped += character
 	}
 	return escaped
 }

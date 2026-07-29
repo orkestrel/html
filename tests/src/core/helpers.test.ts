@@ -6,6 +6,7 @@ import {
 	attributeOf,
 	collapseSpace,
 	collapseText,
+	createHTML,
 	encodeAttribute,
 	encodeText,
 	escapeMarkdown,
@@ -24,11 +25,18 @@ import {
 	sanitizeURL,
 	walkNodes,
 } from '@src/core'
+import {
+	parseDocument as parseMarkdown,
+	renderMarkdown as renderCanonicalMarkdown,
+} from '@orkestrel/markdown'
 import { describe, expect, it } from 'vitest'
 import {
 	buildDeepHTMLDocument,
 	buildHTMLRoundtripCorpus,
+	buildMarkdownPipelineInput,
+	buildMarkdownProjectionInputs,
 	hasAdjacentHTMLText,
+	parseMarkdownProjection,
 } from '../../setup.js'
 
 describe('HTML escaping and URL helpers', () => {
@@ -41,7 +49,22 @@ describe('HTML escaping and URL helpers', () => {
 	})
 
 	it('escapes every supported markdown syntax marker in literal text', () => {
-		expect(escapeMarkdown('\\*_`[]#>|+-')).toBe('\\\\\\*\\_\\`\\[\\]\\#\\>\\|\\+\\-')
+		expect(escapeMarkdown('\\*_`[]#>|+-')).toBe('\\\\\\*\\_\\`\\[\\]#>\\|+-')
+	})
+
+	it('escapes markdown block markers only at line starts', () => {
+		expect(escapeMarkdown('# h')).toBe('\\# h')
+		expect(escapeMarkdown('> q')).toBe('\\> q')
+		expect(escapeMarkdown('- x')).toBe('\\- x')
+		expect(escapeMarkdown('+ y')).toBe('\\+ y')
+		expect(escapeMarkdown('1. x')).toBe('1\\. x')
+		expect(escapeMarkdown('10) x')).toBe('10\\) x')
+		expect(escapeMarkdown('a # b')).toBe('a # b')
+		expect(escapeMarkdown('a - b')).toBe('a - b')
+		expect(escapeMarkdown('x 1. y')).toBe('x 1. y')
+		expect(escapeMarkdown('a\n# h')).toBe('a\n\\# h')
+		expect(escapeMarkdown('-nospace')).toBe('-nospace')
+		expect(escapeMarkdown('a | b')).toBe('a \\| b')
 	})
 
 	it('sanitizes adversarial URL forms after entity and control decoding', () => {
@@ -497,7 +520,298 @@ describe('renderMarkdown projection', () => {
 		const document = parseDocument(
 			'<section><p>*literal* [text] # mark</p><wrapper><p>second</p></wrapper></section>',
 		)
-		expect(renderMarkdown(document)).toBe('\\*literal\\* \\[text\\] \\# mark\n\nsecond')
+		expect(renderMarkdown(document)).toBe('\\*literal\\* \\[text\\] # mark\n\nsecond')
+	})
+})
+
+describe('renderMarkdown markdown-package interop', () => {
+	const inputs = buildMarkdownProjectionInputs()
+
+	it('reparses headings one through six and a paragraph as the expected blocks', () => {
+		expect(parseMarkdownProjection(inputs.headings)).toEqual({
+			element: 'document',
+			children: [
+				{ element: 'heading', level: 1, children: [{ element: 'text', value: 'One' }] },
+				{ element: 'heading', level: 2, children: [{ element: 'text', value: 'Two' }] },
+				{ element: 'heading', level: 3, children: [{ element: 'text', value: 'Three' }] },
+				{ element: 'heading', level: 4, children: [{ element: 'text', value: 'Four' }] },
+				{ element: 'heading', level: 5, children: [{ element: 'text', value: 'Five' }] },
+				{ element: 'heading', level: 6, children: [{ element: 'text', value: 'Six' }] },
+				{ element: 'paragraph', children: [{ element: 'text', value: 'Body' }] },
+			],
+		})
+	})
+
+	it('reparses nested unordered and ordered lists with their structure and ordinal', () => {
+		expect(parseMarkdownProjection(inputs.lists)).toEqual({
+			element: 'document',
+			children: [
+				{
+					element: 'list',
+					ordered: false,
+					start: 1,
+					items: [
+						{
+							element: 'listItem',
+							children: [
+								{ element: 'paragraph', children: [{ element: 'text', value: 'one' }] },
+								{
+									element: 'list',
+									ordered: false,
+									start: 1,
+									items: [
+										{
+											element: 'listItem',
+											children: [
+												{
+													element: 'paragraph',
+													children: [{ element: 'text', value: 'two' }],
+												},
+											],
+										},
+									],
+								},
+							],
+						},
+						{
+							element: 'listItem',
+							children: [
+								{
+									element: 'paragraph',
+									children: [{ element: 'text', value: 'three' }],
+								},
+							],
+						},
+					],
+				},
+				{
+					element: 'list',
+					ordered: true,
+					start: 3,
+					items: [
+						{
+							element: 'listItem',
+							children: [
+								{
+									element: 'paragraph',
+									children: [{ element: 'text', value: 'four' }],
+								},
+								{
+									element: 'list',
+									ordered: true,
+									start: 1,
+									items: [
+										{
+											element: 'listItem',
+											children: [
+												{
+													element: 'paragraph',
+													children: [{ element: 'text', value: 'five' }],
+												},
+											],
+										},
+									],
+								},
+							],
+						},
+					],
+				},
+			],
+		})
+	})
+
+	it('reparses blockquotes and language-tagged fenced code as nested blocks', () => {
+		expect(parseMarkdownProjection(inputs.quote)).toEqual({
+			element: 'document',
+			children: [
+				{
+					element: 'blockquote',
+					children: [
+						{
+							element: 'paragraph',
+							children: [{ element: 'text', value: 'quoted' }],
+						},
+						{
+							element: 'list',
+							ordered: false,
+							start: 1,
+							items: [
+								{
+									element: 'listItem',
+									children: [
+										{
+											element: 'paragraph',
+											children: [{ element: 'text', value: 'nested' }],
+										},
+									],
+								},
+							],
+						},
+					],
+				},
+			],
+		})
+		expect(parseMarkdownProjection(inputs.code)).toEqual({
+			element: 'document',
+			children: [{ element: 'codeBlock', lang: 'ts', code: 'const value = 1' }],
+		})
+	})
+
+	it('reparses links, emphasis, inline code, images, and hard breaks without data loss', () => {
+		expect(parseMarkdownProjection(inputs.inline)).toEqual({
+			element: 'document',
+			children: [
+				{
+					element: 'paragraph',
+					children: [
+						{
+							element: 'link',
+							href: 'https://example.test/guide',
+							children: [{ element: 'text', value: 'guide' }],
+						},
+						{ element: 'text', value: ' ' },
+						{
+							element: 'emphasis',
+							strong: true,
+							children: [{ element: 'text', value: 'strong' }],
+						},
+						{ element: 'text', value: ' ' },
+						{
+							element: 'emphasis',
+							strong: false,
+							children: [{ element: 'text', value: 'emphasis' }],
+						},
+						{ element: 'text', value: ' ' },
+						{ element: 'codeSpan', value: 'inline' },
+						{ element: 'text', value: '\nnext !' },
+						{
+							element: 'link',
+							href: 'https://example.test/image.png',
+							children: [{ element: 'text', value: 'portrait' }],
+						},
+					],
+				},
+			],
+		})
+	})
+
+	it('reparses thematic breaks and GFM tables with cells and default alignments intact', () => {
+		expect(parseMarkdownProjection(inputs.table)).toEqual({
+			element: 'document',
+			children: [
+				{ element: 'thematicBreak' },
+				{
+					element: 'table',
+					header: [[{ element: 'text', value: 'Name' }], [{ element: 'text', value: 'Value' }]],
+					rows: [
+						[[{ element: 'text', value: 'Alpha|Beta' }], [{ element: 'text', value: '1' }]],
+						[[{ element: 'text', value: 'Gamma' }], [{ element: 'text', value: '2' }]],
+					],
+					align: ['none', 'none'],
+				},
+			],
+		})
+	})
+
+	it('keeps adversarial markdown syntax in literal paragraph text nodes', () => {
+		const source = [
+			'<p>* _ ` [ ]</p>',
+			'<p>| Head | Value |\n| --- | --- |</p>',
+			'<p># heading</p>',
+			'<p>&gt; quote</p>',
+			'<p>1. ordered</p>',
+			'<p>- bullet</p>',
+		].join('')
+		expect(parseMarkdownProjection(source)).toEqual({
+			element: 'document',
+			children: [
+				{
+					element: 'paragraph',
+					children: [{ element: 'text', value: '* _ ` [ ]' }],
+				},
+				{
+					element: 'paragraph',
+					children: [{ element: 'text', value: '| Head | Value |\n| --- | --- |' }],
+				},
+				{ element: 'paragraph', children: [{ element: 'text', value: '# heading' }] },
+				{ element: 'paragraph', children: [{ element: 'text', value: '> quote' }] },
+				{ element: 'paragraph', children: [{ element: 'text', value: '1. ordered' }] },
+				{ element: 'paragraph', children: [{ element: 'text', value: '- bullet' }] },
+			],
+		})
+	})
+
+	it('keeps structure and neutralizes boilerplate and javascript through the full pipeline', () => {
+		const markdown = renderMarkdown(
+			createHTML(buildMarkdownPipelineInput())
+				.sanitize()
+				.distill({ base: 'https://example.test/docs/page.html' }).document,
+		)
+		expect(markdown).not.toContain('Noise')
+		expect(markdown).not.toContain('Menu')
+		expect(markdown).not.toContain('Promoted')
+		expect(markdown).not.toContain('Copyright')
+		expect(markdown).not.toContain('javascript:')
+		expect(parseMarkdown(markdown)).toEqual({
+			element: 'document',
+			children: [
+				{
+					element: 'heading',
+					level: 1,
+					children: [{ element: 'text', value: 'Interop' }],
+				},
+				{
+					element: 'paragraph',
+					children: [
+						{ element: 'text', value: 'Read the ' },
+						{
+							element: 'link',
+							href: 'https://example.test/guide',
+							children: [{ element: 'text', value: 'guide' }],
+						},
+						{ element: 'text', value: ' and ' },
+						{
+							element: 'link',
+							href: '',
+							children: [{ element: 'text', value: 'unsafe' }],
+						},
+						{ element: 'text', value: ' link.' },
+					],
+				},
+				{
+					element: 'list',
+					ordered: false,
+					start: 1,
+					items: [
+						{
+							element: 'listItem',
+							children: [
+								{
+									element: 'paragraph',
+									children: [{ element: 'text', value: 'Alpha' }],
+								},
+							],
+						},
+						{
+							element: 'listItem',
+							children: [
+								{
+									element: 'paragraph',
+									children: [{ element: 'text', value: 'Beta' }],
+								},
+							],
+						},
+					],
+				},
+			],
+		})
+	})
+
+	it('stabilizes every HTML projection after one markdown canonicalization cycle', () => {
+		for (const source of Object.values(inputs)) {
+			const once = renderCanonicalMarkdown(parseMarkdownProjection(source))
+			expect(renderCanonicalMarkdown(parseMarkdown(once))).toBe(once)
+		}
 	})
 })
 
