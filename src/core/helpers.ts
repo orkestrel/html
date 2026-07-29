@@ -1,5 +1,6 @@
 import type {
 	ElementNode,
+	HTMLAttribute,
 	HTMLDocument,
 	HTMLHandlers,
 	HTMLNode,
@@ -10,6 +11,7 @@ import {
 	MAX_DEPTH,
 	RAW_ELEMENTS,
 	SAFE_URL_SCHEMES,
+	URL_ATTRIBUTES,
 	VOID_ELEMENTS,
 } from './constants.js'
 import { decodeEntities } from './parsers.js'
@@ -138,6 +140,84 @@ export function attributeOf(node: ElementNode, name: string): string | undefined
 		return undefined
 	} catch {
 		return undefined
+	}
+}
+
+/**
+ * Filter an element's attributes down to the ones a sanitized document may carry.
+ *
+ * @remarks
+ * The allowlist narrows what is kept, but three refusals hold whatever it contains: a
+ * handler attribute (any case-insensitive `on*` name), a scripting or styling channel
+ * (`style`, `srcdoc`), a namespaced or `xmlns` name, and a structurally unwritable name are
+ * always removed; a {@link URL_ATTRIBUTES} value is passed through {@link sanitizeURL} and
+ * the attribute is REMOVED - not emptied - when nothing safe survives. Names are
+ * ASCII-lowercased, source order is preserved, and a valueless attribute stays valueless.
+ *
+ * @param node - The element whose attributes are being filtered
+ * @param attributes - The allowed lowercase attribute names
+ * @param schemes - The allowed lowercase absolute URL schemes
+ * @returns The attributes a sanitized element keeps, in source order
+ */
+export function sanitizeAttributes(
+	node: ElementNode,
+	attributes: ReadonlySet<string>,
+	schemes: ReadonlySet<string>,
+): readonly HTMLAttribute[] {
+	try {
+		const kept: HTMLAttribute[] = []
+		for (const attribute of node.attributes) {
+			const name = attribute.name.toLowerCase()
+			if (
+				name.length === 0 ||
+				/[\s"'/:<=>]/.test(name) ||
+				name.startsWith('on') ||
+				name === 'style' ||
+				name === 'srcdoc' ||
+				name === 'xmlns' ||
+				!attributes.has(name)
+			) {
+				continue
+			}
+			if (!URL_ATTRIBUTES.has(name)) {
+				kept.push(attribute.value === undefined ? { name } : { name, value: attribute.value })
+				continue
+			}
+			const url = sanitizeURL(attribute.value ?? '', schemes)
+			if (url.length > 0) kept.push({ name, value: url })
+		}
+		return kept
+	} catch {
+		return []
+	}
+}
+
+/**
+ * Resolve an element's URL attributes against a base URL.
+ *
+ * @remarks
+ * Every {@link URL_ATTRIBUTES} value is resolved through {@link resolveURL}, so an absolute
+ * value stays itself and an unresolvable one is left exactly as written. Other attributes
+ * pass through with their names ASCII-lowercased.
+ *
+ * @param node - The element whose URL attributes are being resolved
+ * @param base - The absolute base URL
+ * @returns The element's attributes with every URL value resolved, in source order
+ */
+export function resolveAttributes(node: ElementNode, base: string): readonly HTMLAttribute[] {
+	try {
+		const resolved: HTMLAttribute[] = []
+		for (const attribute of node.attributes) {
+			const name = attribute.name.toLowerCase()
+			if (URL_ATTRIBUTES.has(name) && attribute.value !== undefined) {
+				resolved.push({ name, value: resolveURL(attribute.value, base) })
+				continue
+			}
+			resolved.push(attribute.value === undefined ? { name } : { name, value: attribute.value })
+		}
+		return resolved
+	} catch {
+		return node.attributes
 	}
 }
 
@@ -889,6 +969,201 @@ export function rewriteDocument(document: HTMLDocument, rewrite: HTMLRewriteHand
 						: document
 			}
 			values.push(rewritten)
+		}
+		return document
+	} catch {
+		return document
+	}
+}
+
+/**
+ * Restore the no-adjacent-text invariant in a rebuilt list of siblings.
+ *
+ * @remarks
+ * Unwrapping an element splices its children into its parent's list, which can leave two
+ * text nodes side by side - a shape the parser never produces, and one that would make a
+ * document disagree with its own reparsed serialization. Adjacent text nodes are joined
+ * into one and an empty text node is dropped; every other node passes through untouched.
+ *
+ * @param children - The rebuilt sibling list
+ * @returns The list with adjacent text joined and empty text removed
+ */
+export function mergeText(children: readonly HTMLNode[]): readonly HTMLNode[] {
+	try {
+		const merged: HTMLNode[] = []
+		for (const child of children) {
+			if (child === undefined) continue
+			if (child.category !== 'text') {
+				merged.push(child)
+				continue
+			}
+			if (child.value.length === 0) continue
+			const previous = merged[merged.length - 1]
+			if (previous !== undefined && previous.category === 'text') {
+				merged[merged.length - 1] = { category: 'text', value: previous.value + child.value }
+				continue
+			}
+			merged.push(child)
+		}
+		return merged
+	} catch {
+		return children
+	}
+}
+
+/**
+ * Collapse the whitespace runs inside each direct text child of a sibling list.
+ *
+ * @remarks
+ * Every run of whitespace becomes one space and edge whitespace is KEPT, because the space
+ * between `<b>one</b>` and `<i>two</i>` is a word boundary rather than decoration. Applying
+ * this at the element that keeps the text - never at one being unwrapped - is what leaves a
+ * `pre` or `code` body verbatim while the surrounding prose collapses.
+ *
+ * @param children - The sibling list whose text children are collapsed
+ * @returns The list with each text child's whitespace collapsed
+ */
+export function collapseText(children: readonly HTMLNode[]): readonly HTMLNode[] {
+	try {
+		const collapsed: HTMLNode[] = []
+		for (const child of children) {
+			if (child === undefined) continue
+			collapsed.push(
+				child.category === 'text'
+					? { category: 'text', value: child.value.replace(/\s+/g, ' ') }
+					: child,
+			)
+		}
+		return collapsed
+	} catch {
+		return children
+	}
+}
+
+/**
+ * Re-root a document at the sole occurrence of one of the named region elements.
+ *
+ * @remarks
+ * The names are tried in order and the first one occurring EXACTLY once in the document
+ * wins - its children become the new root's children, so everything outside the region is
+ * discarded. A name that is absent, or that occurs more than once, is ambiguous evidence
+ * and is skipped; when no name qualifies the document is returned unchanged.
+ *
+ * @param document - The document to re-root
+ * @param names - The candidate region element names, most specific first
+ * @returns The re-rooted document, or the original when no region qualifies
+ */
+export function extractRegion(document: HTMLDocument, names: readonly string[]): HTMLDocument {
+	try {
+		for (const name of names) {
+			const expected = name.toLowerCase()
+			let region: ElementNode | undefined
+			let count = 0
+			for (const node of walkNodes(document)) {
+				if (node.category !== 'element' || node.name.toLowerCase() !== expected) continue
+				count += 1
+				if (count > 1) break
+				region = node
+			}
+			if (count === 1 && region !== undefined) {
+				return { category: 'document', children: region.children }
+			}
+		}
+		return document
+	} catch {
+		return document
+	}
+}
+
+/**
+ * Rebuild a document bottom-up, letting each node become any number of nodes.
+ *
+ * @remarks
+ * The dual of {@link rewriteDocument}: a rewrite maps one node to one node, while a prune
+ * maps one node to a LIST - `[]` to drop it, `node.children` to unwrap it, `[node]` to keep
+ * it, or any other list to replace it - which is the shape every allowlist, region drop, and
+ * wrapper melt needs. As in {@link rewriteDocument} the handler receives each node with its
+ * children ALREADY pruned and flattened, so keeping a node needs no reconstruction and a
+ * subtree nothing changed keeps its reference. The root is handled last and its handler is
+ * expected to return the rebuilt document; a result that is not one is treated as the new
+ * root's children. Descent stops at {@link MAX_DEPTH}: a node at the cap is handed NO
+ * children, so a policy can never keep content it was unable to inspect - safety over
+ * fidelity, and the same cap {@link foldNode} folds against.
+ *
+ * @param document - The document to rebuild
+ * @param prune - The bottom-up handler mapping one node to the nodes that replace it
+ * @returns The rebuilt document, or the input document if pruning throws
+ */
+export function pruneDocument(
+	document: HTMLDocument,
+	prune: (node: HTMLNode) => readonly HTMLNode[],
+): HTMLDocument {
+	try {
+		const stack: {
+			readonly node: HTMLNode
+			readonly depth: number
+			readonly expanded: boolean
+			readonly count: number
+		}[] = [{ node: document, depth: -1, expanded: false, count: 0 }]
+		const results: Array<readonly HTMLNode[]> = []
+		while (stack.length > 0) {
+			const frame = stack.pop()
+			if (frame === undefined) continue
+			const current = frame.node
+			if (!frame.expanded) {
+				const children: HTMLNode[] = []
+				if (
+					frame.depth < MAX_DEPTH &&
+					(current.category === 'document' || current.category === 'element')
+				) {
+					for (const child of current.children) if (child !== undefined) children.push(child)
+				}
+				stack.push({ ...frame, expanded: true, count: children.length })
+				const depth = current.category === 'document' ? 0 : frame.depth + 1
+				for (let index = children.length - 1; index >= 0; index -= 1) {
+					const child = children[index]
+					if (child !== undefined) {
+						stack.push({ node: child, depth, expanded: false, count: 0 })
+					}
+				}
+				continue
+			}
+			const pruned =
+				frame.count === 0 ? [] : results.splice(results.length - frame.count, frame.count)
+			const children: HTMLNode[] = []
+			for (const group of pruned) for (const child of group) children.push(child)
+			let candidate = current
+			if (current.category === 'document' || current.category === 'element') {
+				let changed = children.length !== current.children.length
+				if (!changed) {
+					for (const [index, child] of children.entries()) {
+						if (child !== current.children[index]) {
+							changed = true
+							break
+						}
+					}
+				}
+				if (changed) {
+					candidate =
+						current.category === 'document'
+							? { category: 'document', children }
+							: {
+									category: 'element',
+									name: current.name,
+									attributes: current.attributes,
+									children,
+								}
+				}
+			}
+			const replacements = prune(candidate)
+			if (stack.length === 0) {
+				const root = replacements[0]
+				if (root !== undefined && root.category === 'document') return root
+				const rest: HTMLNode[] = []
+				for (const node of replacements) if (node.category !== 'document') rest.push(node)
+				return { category: 'document', children: rest }
+			}
+			results.push(replacements)
 		}
 		return document
 	} catch {

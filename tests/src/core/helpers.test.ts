@@ -1,18 +1,26 @@
 import type { ElementNode, HTMLDocument, HTMLHandlers, HTMLNode } from '@src/core'
 import {
 	MAX_DEPTH,
+	SAFE_ATTRIBUTES,
+	SAFE_URL_SCHEMES,
 	attributeOf,
 	collapseSpace,
+	collapseText,
 	encodeAttribute,
 	encodeText,
 	escapeMarkdown,
+	extractRegion,
 	foldNode,
+	mergeText,
 	parseDocument,
+	pruneDocument,
 	renderHTML,
 	renderMarkdown,
 	renderText,
+	resolveAttributes,
 	resolveURL,
 	rewriteDocument,
+	sanitizeAttributes,
 	sanitizeURL,
 	walkNodes,
 } from '@src/core'
@@ -91,6 +99,247 @@ describe('HTML escaping and URL helpers', () => {
 
 	it('collapses inter-word whitespace and trims edges', () => {
 		expect(collapseSpace(' \talpha\r\n beta  gamma\n')).toBe('alpha beta gamma')
+	})
+})
+
+describe('sanitizeAttributes', () => {
+	it('keeps allowlisted attributes in source order and preserves valuelessness', () => {
+		const element: ElementNode = {
+			category: 'element',
+			name: 'th',
+			attributes: [
+				{ name: 'COLSPAN', value: '2' },
+				{ name: 'title' },
+				{ name: 'dir', value: 'rtl' },
+			],
+			children: [],
+		}
+		expect(sanitizeAttributes(element, SAFE_ATTRIBUTES, SAFE_URL_SCHEMES)).toEqual([
+			{ name: 'colspan', value: '2' },
+			{ name: 'title' },
+			{ name: 'dir', value: 'rtl' },
+		])
+	})
+
+	it('removes handler, styling, namespaced, and unwritable names even when allowlisted', () => {
+		const element: ElementNode = {
+			category: 'element',
+			name: 'p',
+			attributes: [
+				{ name: 'onclick', value: 'x()' },
+				{ name: 'ONLOAD', value: 'y()' },
+				{ name: 'style', value: 'color:red' },
+				{ name: 'srcdoc', value: '<p>' },
+				{ name: 'xlink:href', value: '#x' },
+				{ name: 'xmlns', value: 'urn:x' },
+				{ name: 'bad name', value: 'x' },
+				{ name: '', value: 'x' },
+				{ name: 'title', value: 'kept' },
+			],
+			children: [],
+		}
+		const attributes = new Set([
+			'onclick',
+			'onload',
+			'style',
+			'srcdoc',
+			'xlink:href',
+			'xmlns',
+			'bad name',
+			'',
+			'title',
+		])
+		expect(sanitizeAttributes(element, attributes, SAFE_URL_SCHEMES)).toEqual([
+			{ name: 'title', value: 'kept' },
+		])
+	})
+
+	it('removes an unsafe or valueless URL attribute rather than emptying it', () => {
+		const element: ElementNode = {
+			category: 'element',
+			name: 'a',
+			attributes: [
+				{ name: 'href', value: 'javascript:alert(1)' },
+				{ name: 'cite', value: '//evil.test/x' },
+				{ name: 'title' },
+			],
+			children: [],
+		}
+		expect(sanitizeAttributes(element, SAFE_ATTRIBUTES, SAFE_URL_SCHEMES)).toEqual([
+			{ name: 'title' },
+		])
+		const bare: ElementNode = {
+			category: 'element',
+			name: 'a',
+			attributes: [{ name: 'href' }],
+			children: [],
+		}
+		expect(sanitizeAttributes(bare, SAFE_ATTRIBUTES, SAFE_URL_SCHEMES)).toEqual([])
+	})
+
+	it('keeps a URL its scheme allowlist admits, in the decoded form', () => {
+		const element: ElementNode = {
+			category: 'element',
+			name: 'a',
+			attributes: [{ name: 'href', value: 'https://example.test/a b' }],
+			children: [],
+		}
+		expect(sanitizeAttributes(element, SAFE_ATTRIBUTES, SAFE_URL_SCHEMES)).toEqual([
+			{ name: 'href', value: 'https://example.test/ab' },
+		])
+		expect(sanitizeAttributes(element, SAFE_ATTRIBUTES, new Set(['mailto']))).toEqual([])
+	})
+})
+
+describe('resolveAttributes', () => {
+	it('resolves every URL attribute and leaves the others alone', () => {
+		const element: ElementNode = {
+			category: 'element',
+			name: 'a',
+			attributes: [
+				{ name: 'HREF', value: '../asset.png' },
+				{ name: 'src', value: 'https://other.test/x' },
+				{ name: 'title', value: '../not-a-url' },
+				{ name: 'download' },
+			],
+			children: [],
+		}
+		expect(resolveAttributes(element, 'https://example.test/docs/page')).toEqual([
+			{ name: 'href', value: 'https://example.test/asset.png' },
+			{ name: 'src', value: 'https://other.test/x' },
+			{ name: 'title', value: '../not-a-url' },
+			{ name: 'download' },
+		])
+	})
+
+	it('leaves a value the platform cannot resolve exactly as written', () => {
+		const element: ElementNode = {
+			category: 'element',
+			name: 'a',
+			attributes: [{ name: 'href', value: 'relative' }],
+			children: [],
+		}
+		expect(resolveAttributes(element, 'not a base')).toEqual([{ name: 'href', value: 'relative' }])
+	})
+})
+
+describe('mergeText', () => {
+	it('joins adjacent text, drops empty text, and passes other nodes through', () => {
+		const element: ElementNode = { category: 'element', name: 'b', attributes: [], children: [] }
+		expect(
+			mergeText([
+				{ category: 'text', value: 'a' },
+				{ category: 'text', value: '' },
+				{ category: 'text', value: 'b' },
+				element,
+				{ category: 'text', value: 'c' },
+			]),
+		).toEqual([{ category: 'text', value: 'ab' }, element, { category: 'text', value: 'c' }])
+	})
+
+	it('returns an empty list for an empty or wholly empty-text list', () => {
+		expect(mergeText([])).toEqual([])
+		expect(mergeText([{ category: 'text', value: '' }])).toEqual([])
+	})
+})
+
+describe('collapseText', () => {
+	it('collapses whitespace runs in text children while keeping edge spaces', () => {
+		const element: ElementNode = { category: 'element', name: 'b', attributes: [], children: [] }
+		expect(
+			collapseText([
+				{ category: 'text', value: ' a \n  b ' },
+				element,
+				{ category: 'text', value: '\t' },
+			]),
+		).toEqual([{ category: 'text', value: ' a b ' }, element, { category: 'text', value: ' ' }])
+	})
+})
+
+describe('extractRegion', () => {
+	it('re-roots at the sole occurrence of the first qualifying name', () => {
+		const document = parseDocument('<p>outside</p><main><p>inside</p></main>')
+		expect(renderHTML(extractRegion(document, ['main', 'article']))).toBe('<p>inside</p>')
+	})
+
+	it('skips an absent or repeated name and falls through to the next', () => {
+		const document = parseDocument('<article><p>only</p></article>')
+		expect(renderHTML(extractRegion(document, ['main', 'article']))).toBe('<p>only</p>')
+		const repeated = parseDocument('<main><p>a</p></main><MAIN><p>b</p></MAIN>')
+		expect(extractRegion(repeated, ['main'])).toBe(repeated)
+		expect(extractRegion(parseDocument('<p>a</p>'), ['main', 'article'])).toEqual({
+			category: 'document',
+			children: [
+				{
+					category: 'element',
+					name: 'p',
+					attributes: [],
+					children: [{ category: 'text', value: 'a' }],
+				},
+			],
+		})
+	})
+})
+
+describe('pruneDocument', () => {
+	it('drops, unwraps, and keeps nodes from one bottom-up pass', () => {
+		const document = parseDocument('<div><span>a</span><!--c--><p>b</p></div>')
+		const pruned = pruneDocument(document, (node) => {
+			if (node.category === 'comment') return []
+			if (node.category === 'element' && node.name === 'span') return node.children
+			return [node]
+		})
+		expect(renderHTML(pruned)).toBe('<div>a<p>b</p></div>')
+	})
+
+	it('hands each node its children already pruned, bottom-up, root last', () => {
+		const document = parseDocument('<div><span>drop</span><p>a</p></div>')
+		const seen: string[] = []
+		const rendered: string[] = []
+		pruneDocument(document, (node) => {
+			seen.push(node.category === 'element' ? node.name : node.category)
+			if (node.category === 'element' && node.name === 'span') return []
+			if (node.category === 'element' && node.name === 'div') rendered.push(renderHTML(node))
+			return [node]
+		})
+		expect(seen).toEqual(['text', 'span', 'text', 'p', 'div', 'document'])
+		expect(rendered).toEqual(['<div><p>a</p></div>'])
+	})
+
+	it('keeps the reference of a subtree nothing changed', () => {
+		const document = parseDocument('<div><p>a</p></div>')
+		expect(pruneDocument(document, (node) => [node])).toBe(document)
+	})
+
+	it('rebuilds a root from replacements that are not a document', () => {
+		const document = parseDocument('<p>a</p>')
+		expect(pruneDocument(document, (node) => (node.category === 'document' ? [] : [node]))).toEqual(
+			{
+				category: 'document',
+				children: [],
+			},
+		)
+	})
+
+	it('stays total and depth-capped over a hostile deep document', () => {
+		const document = buildDeepHTMLDocument(MAX_DEPTH + 500)
+		let count = 0
+		const pruned = pruneDocument(document, (node) => {
+			count += 1
+			return [node]
+		})
+		expect(count).toBeLessThanOrEqual(MAX_DEPTH + 2)
+		expect(pruned.category).toBe('document')
+	})
+
+	it('hands a node at the depth cap no children, so a policy cannot keep what it cannot see', () => {
+		const document = buildDeepHTMLDocument(MAX_DEPTH + 5)
+		const deepest: number[] = []
+		pruneDocument(document, (node) => {
+			if (node.category === 'element') deepest.push(node.children.length)
+			return [node]
+		})
+		expect(deepest[0]).toBe(0)
 	})
 })
 

@@ -42,6 +42,63 @@ export function createRecorder<TArgs extends readonly unknown[]>(): TestRecorder
 	}
 }
 
+// ── Deterministic randomness ─────────────────────────────────────────────────
+//
+// The single house seed for tests that need generated input (a contract's
+// `.generate(random)`). Suites call `seededRandom(TEST_SEED)` for a fresh,
+// deterministic `RandomFunction`, so every suite starts from the same point.
+
+/** The shared seed for deterministic generated test input. */
+export const TEST_SEED = 42
+
+/**
+ * Read a `ReadableStream` to completion through its reader, in order.
+ *
+ * @remarks
+ * The universal consumption form - a reader loop rather than async iteration -
+ * so a stream assertion runs in every environment the core library targets.
+ *
+ * @param stream - The stream to drain
+ * @returns Every chunk the stream produced, in order
+ */
+export async function collectStream<T>(stream: ReadableStream<T>): Promise<readonly T[]> {
+	const reader = stream.getReader()
+	const chunks: T[] = []
+	for (let result = await reader.read(); !result.done; result = await reader.read()) {
+		chunks.push(result.value)
+	}
+	return chunks
+}
+
+/**
+ * Build a realistic article page carrying every region the distiller prunes.
+ *
+ * @remarks
+ * One page with navigation, a hidden banner, a hidden paragraph, a tracking
+ * script, a wrapper `div`, a fenced code block, an empty element, and a footer -
+ * so one distill assertion covers the whole pipeline instead of nine fragments.
+ *
+ * @returns The page source
+ */
+export function buildHTMLPageInput(): string {
+	return [
+		'<!DOCTYPE html>',
+		'<html lang="en"><head><title>Doc</title><script>track()</script></head>',
+		'<body>',
+		'<nav><a href="/home">Home</a></nav>',
+		'<header hidden>Banner</header>',
+		'<main><article>',
+		'<h1>  Title   here </h1>',
+		'<p aria-hidden="true">Hidden note</p>',
+		'<div class="wrap"><p>Body <b>bold</b> <a href="page">link</a></p></div>',
+		'<pre><code class="language-ts">const x  =  1</code></pre>',
+		'<div></div>',
+		'</article></main>',
+		'<footer>Footer</footer>',
+		'</body></html>',
+	].join('')
+}
+
 /** Whether a repository-relative Vue SFC belongs to the private browser application. */
 export function isBrowserVuePath(path: string): boolean {
 	const normalized = path.replaceAll('\\', '/')
