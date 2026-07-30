@@ -7,7 +7,6 @@
 		"distill",
 		"html",
 		"llm",
-		"markdown",
 		"parser",
 		"sanitize",
 		"sanitizer",
@@ -73,7 +72,6 @@
 	"devDependencies": {
 		"@microsoft/api-extractor": "^7.58.12",
 		"@orkestrel/guide": "^0.0.7",
-		"@orkestrel/markdown": "^0.0.6",
 		"@orkestrel/scaffold": "^0.0.11",
 		"@types/node": "^26.1.2",
 		"oxfmt": "^0.61.0",

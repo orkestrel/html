@@ -56,11 +56,11 @@ import { isEmptyElement } from './validators.js'
  *
  * @example
  * ```ts
- * import { HTML, isElementNode, renderMarkdown } from '@orkestrel/html'
+ * import { HTML, isElementNode, renderHTML } from '@orkestrel/html'
  *
  * const page = new HTML('<nav>skip</nav><main><h1>Title</h1><p onclick="x()">Body</p></main>')
- * const prompt = renderMarkdown(page.distill().document)
- * // '# Title\n\nBody'
+ * const content = renderHTML(page.distill().document)
+ * // '<h1>Title</h1><p>Body</p>'
  * page.find(isElementNode)?.name // 'nav' - the original document is untouched
  * ```
  */
@@ -250,7 +250,7 @@ export class HTML implements HTMLInterface {
 	 * @example
 	 * ```ts
 	 * const article = page.distill({ base: 'https://example.test/docs/page' })
-	 * renderMarkdown(article.document) // prompt-ready markdown, links absolute
+	 * renderHTML(article.document) // canonical HTML, links absolute
 	 * ```
 	 */
 	distill(options?: DistillOptions): HTMLInterface {

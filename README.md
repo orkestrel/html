@@ -1,8 +1,8 @@
 # @orkestrel/html
 
-A typed HTML AST: parse any page or fragment into readonly nodes, render them back to canonical
-HTML, text, or markdown, sanitize them against a floor no option can lower, and distill a page down
-to the prose a reader — or a language model — actually wants.
+A typed HTML AST: parse any page or fragment into readonly nodes, render them back to canonical HTML
+or plain text, sanitize them against a floor no option can lower, and distill a page down to the
+prose a reader — or a language model — actually wants.
 
 - **Total parsing.** Every input produces a document. No parse options, no issue list, no error path:
   malformed markup recovers per a documented table instead of throwing.
@@ -22,7 +22,7 @@ npm install @orkestrel/html
 ## Usage
 
 ```ts
-import { createHTML, renderMarkdown } from '@orkestrel/html'
+import { createHTML, renderHTML, renderText } from '@orkestrel/html'
 
 const page = createHTML(
 	'<nav>Menu</nav><main><h1>Title</h1><p>Read the <a href="/b">guide</a>.</p></main>',
@@ -31,8 +31,14 @@ const page = createHTML(
 const safe = page.sanitize() // the whole page, made safe
 const article = page.distill({ base: 'https://x.dev/docs/page' }) // its content, sanitized and extracted
 
-renderMarkdown(article.document) // '# Title\n\nRead the [guide](https://x.dev/b).'
+// `distill` returns a handle, so the projection stays your choice.
+renderHTML(article.document) // '<h1>Title</h1><p>Read the <a href="https://x.dev/b">guide</a>.</p>'
+renderText(article.document) // 'Title\nRead the guide.'
 ```
+
+`renderText` is flat on purpose: heading levels, link destinations, list markers, and table geometry
+are not representable in plain text and do not survive it. Read the distilled AST, or serialize it
+with `renderHTML`, whenever the structure is the point.
 
 ## Laws
 
@@ -50,6 +56,10 @@ close itself — is rendered for safety instead of fidelity.
 
 For the full surface, the recovery table, the sanitize floor, and the distill pass, see
 [`guides/src/html.md`](guides/src/html.md).
+
+## Package
+
+Published as a single typed entry point per the `exports` field in `package.json`.
 
 ## License
 

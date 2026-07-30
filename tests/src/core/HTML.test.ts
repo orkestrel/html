@@ -23,7 +23,7 @@ import {
 	isTextNode,
 	parseDocument,
 	renderHTML,
-	renderMarkdown,
+	renderText,
 } from '@src/core'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import {
@@ -833,14 +833,14 @@ describe('HTML - adversarial sanitizer corpus', () => {
 		}
 	})
 
-	it('neutralizes markdown-shaped javascript through the distilled projection path', () => {
+	it('removes a dangerous link through the distilled path and leaves look-alike text inert', () => {
 		const distilled = new HTML(
 			'<p>[x](javascript:alert(1)) <a href="javascript:alert(2)">linked</a></p>',
 		).distill()
-		const markdown = renderMarkdown(distilled.document)
-		expect(markdown).toContain('\\[x\\](javascript:alert(1))')
-		expect(markdown).not.toContain('[x](javascript:')
-		expect(markdown).not.toContain('[linked](javascript:')
+		// The anchor loses its destination; the bracketed text that merely LOOKS like a link
+		// is character data, so it survives verbatim rather than being rewritten or trusted.
+		expect(renderHTML(distilled.document)).toBe('<p>[x](javascript:alert(1)) <a>linked</a></p>')
+		expect(renderText(distilled.document)).toBe('[x](javascript:alert(1)) linked')
 	})
 })
 
@@ -916,11 +916,11 @@ describe('HTML - distill', () => {
 		)
 	})
 
-	it('projects that content to prompt-ready markdown', () => {
+	it('projects that content to structural plain text, losing what text cannot carry', () => {
 		const page = new HTML(buildHTMLPageInput())
-		expect(renderMarkdown(page.distill().document)).toBe(
-			'# Title here\n\nBody **bold** [link](page)\n\n```ts\nconst x  =  1\n```',
-		)
+		// The flat projection: heading level, link destination, and code fence are all gone,
+		// which is why `distill` returns a handle and rendering stays a separate choice.
+		expect(renderText(page.distill().document)).toBe('Title here\nBody bold link\nconst x = 1')
 	})
 
 	it('resolves relative URLs against a base', () => {

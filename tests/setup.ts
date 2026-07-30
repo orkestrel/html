@@ -1,7 +1,5 @@
 import type { ElementNode, HTMLDocument, HTMLNode } from '@src/core'
-import type { MarkdownDocument } from '@orkestrel/markdown'
-import { MAX_DEPTH, parseDocument, renderMarkdown } from '@src/core'
-import { parseDocument as parseMarkdown } from '@orkestrel/markdown'
+import { MAX_DEPTH, parseDocument } from '@src/core'
 
 // ── Call recorder (a real callback, not a mock) ──────────────────────────────
 //
@@ -99,72 +97,6 @@ export function buildHTMLPageInput(): string {
 		'<footer>Footer</footer>',
 		'</body></html>',
 	].join('')
-}
-
-/** The HTML fixtures spanning every supported markdown projection family. */
-export interface MarkdownProjectionInputs {
-	readonly headings: string
-	readonly lists: string
-	readonly quote: string
-	readonly code: string
-	readonly inline: string
-	readonly table: string
-}
-
-/**
- * Build HTML fixtures for the complete markdown projection subset.
- *
- * @returns One fixture per related projection family
- */
-export function buildMarkdownProjectionInputs(): MarkdownProjectionInputs {
-	return {
-		headings:
-			'<h1>One</h1><h2>Two</h2><h3>Three</h3><h4>Four</h4>' +
-			'<h5>Five</h5><h6>Six</h6><p>Body</p>',
-		lists:
-			'<ul><li>one<ul><li>two</li></ul></li><li>three</li></ul>' +
-			'<ol start="3"><li>four<ol><li>five</li></ol></li></ol>',
-		quote: '<blockquote><p>quoted</p><ul><li>nested</li></ul></blockquote>',
-		code: '<pre><code class="language-ts">const value = 1</code></pre>',
-		inline:
-			'<p><a href="https://example.test/guide">guide</a> ' +
-			'<strong>strong</strong> <em>emphasis</em> <code>inline</code><br>' +
-			'next <img alt="portrait" src="https://example.test/image.png"></p>',
-		table:
-			'<hr><table><thead><tr><th>Name</th><th>Value</th></tr></thead>' +
-			'<tbody><tr><td>Alpha|Beta</td><td>1</td></tr><tr><td>Gamma</td><td>2</td></tr>' +
-			'</tbody></table>',
-	}
-}
-
-/**
- * Build a realistic page for the sanitize, distill, and markdown interop pipeline.
- *
- * @returns A whole page with boilerplate, content, safe links, and an unsafe link
- */
-export function buildMarkdownPipelineInput(): string {
-	return [
-		'<!DOCTYPE html>',
-		'<html><head><title>Noise</title><script>track()</script></head><body>',
-		'<nav><a href="/menu">Menu</a></nav>',
-		'<main><article><h1>Interop</h1>',
-		'<p>Read the <a href="../guide">guide</a> and ',
-		'<a href="javascript:alert(1)">unsafe</a> link.</p>',
-		'<ul><li>Alpha</li><li>Beta</li></ul>',
-		'</article></main>',
-		'<aside>Promoted</aside><footer>Copyright</footer>',
-		'</body></html>',
-	].join('')
-}
-
-/**
- * Parse HTML, project it with this package, then parse that output with markdown.
- *
- * @param source - The HTML fixture
- * @returns The real markdown parser's AST for the HTML projection
- */
-export function parseMarkdownProjection(source: string): MarkdownDocument {
-	return parseMarkdown(renderMarkdown(parseDocument(source)))
 }
 
 /** Whether a repository-relative Vue SFC belongs to the private browser application. */
@@ -320,7 +252,7 @@ export interface HTMLSanitizerCase {
  * Build the adversarial corpus for the sanitizer's security boundary.
  *
  * @returns Hostile inputs spanning attributes, URL schemes, unsafe elements, parser
- * recovery, raw-text boundaries, and markdown-shaped text
+ * recovery, raw-text boundaries, and link-shaped literal text
  */
 export function buildHTMLSanitizerCorpus(): readonly HTMLSanitizerCase[] {
 	return [
@@ -535,8 +467,8 @@ export function buildHTMLSanitizerCorpus(): readonly HTMLSanitizerCase[] {
 			html: ['<script', '>bad<'],
 		},
 		{
-			group: 'projection',
-			name: 'markdown-shaped javascript link',
+			group: 'text',
+			name: 'link-shaped literal text beside a real javascript link',
 			source: '<p>[x](javascript:alert(1)) <a href="javascript:alert(2)">linked</a></p>',
 			ast: ['"name":"href"'],
 			html: ['href='],
@@ -605,22 +537,21 @@ export function buildHTMLEntityURLCorpus(): readonly HTMLEntityURLCase[] {
 	]
 }
 
-// ── Mirrored URL-safety corpus ───────────────────────────────────────────────
+// ── URL-safety corpus ────────────────────────────────────────────────────────
 //
-// `sanitizeURL`'s lower floor — strip every codepoint ≤ U+0020 and U+007F–U+009F,
-// refuse any two-character protocol-relative prefix drawn from `/` and `\`, extract
-// an ASCII scheme, enforce an allowlist, keep relative / anchor / scheme-less values —
-// is re-implemented, deliberately, in `@orkestrel/markdown`'s `sanitizeUrl`: each
-// package owns the sanitizer for its own output context (guides/src/html.md § The
-// sanitize floor explains why). There is therefore no shared function to test once, and
-// the corpus below is what the two packages DO share. It is mirrored vector-for-vector,
-// in this order, under the same name in `@orkestrel/markdown`'s `tests/setup.ts`, so a
-// vector missed here is missed there too and a reader can diff the two lists by eye.
+// The floor `sanitizeURL` enforces, enumerated as data: strip every codepoint ≤ U+0020
+// and U+007F–U+009F, refuse any two-character protocol-relative prefix drawn from `/`
+// and `\`, extract an ASCII scheme, enforce an allowlist, and keep relative / anchor /
+// scheme-less values (guides/src/html.md § The sanitize floor states the rules this
+// corpus pins). Every vector carries its disposition, so a reader can see the whole
+// floor in one list instead of inferring it from scattered assertions, and one group's
+// vectors can be extended without touching the assertions that consume them.
 //
-// The `controls` / `case` / `relative` / `kept` / `schemes` groups are the floor both
-// packages agree on, vector for vector. The `entities` and `escaping` groups carry the
-// SAME inputs with each package's own disposition — the two legitimate divergences,
-// explained at each group below and asserted as named tests in helpers.test.ts.
+// `controls` / `case` / `relative` / `kept` / `schemes` are the floor itself. `entities`
+// and `escaping` are the two rules that follow from WHERE this sanitizer sits: it runs on
+// the AST, before `renderHTML` serializes, so it decodes character references before
+// reading a scheme and leaves a surviving value unescaped for the serializer. Both have
+// named tests in helpers.test.ts.
 
 /** One adversarial URL and the value this package's sanitizer may retain. */
 export interface URLSafetyCase {
@@ -635,7 +566,7 @@ export interface URLSafetyCase {
 }
 
 /**
- * Build the URL-safety corpus mirrored in `@orkestrel/markdown`, with html's dispositions.
+ * Build the URL-safety corpus for `sanitizeURL`, each vector carrying its disposition.
  *
  * @returns Control splices, case variance, protocol-relative forms, kept destinations,
  * refused schemes, entity obfuscation, and unescaped survivors
@@ -674,13 +605,11 @@ export function buildURLSafetyCorpus(): readonly URLSafetyCase[] {
 		{ group: 'schemes', name: 'file', source: 'file:///etc/passwd' },
 		{ group: 'schemes', name: 'vbscript', source: 'vbscript:msgbox' },
 		{ group: 'schemes', name: 'unlisted scheme', source: 'ftp://host' },
-		// DIVERGENCE — the entity-decode pass. `@orkestrel/markdown` KEEPS every vector in
-		// this group, escaped: it emits a finished `href` attribute value, so an undecoded
-		// reference reaches the browser as literal text whose `:` never begins a scheme.
-		// html has no such luxury — its sanitized value is re-serialized, and a hand-built
-		// AST can defer decoding to a later parse — so it decodes character references to a
-		// bounded fixpoint first and refuses what decodes to a dangerous scheme. An
-		// obfuscated ALLOWED scheme survives, decoded.
+		// The entity-decode pass. A sanitized value here is re-serialized and can be
+		// reparsed, and a hand-built AST can defer decoding to that later parse, so
+		// character references are decoded to a bounded fixpoint BEFORE the scheme is read
+		// and whatever decodes to a dangerous scheme is refused. An obfuscated ALLOWED
+		// scheme survives, decoded.
 		{ group: 'entities', name: 'decimal entity scheme', source: '&#106;avascript:x' },
 		{ group: 'entities', name: 'hex entity scheme', source: '&#x6a;avascript:x' },
 		{ group: 'entities', name: 'named colon', source: 'javascript&colon;x' },
@@ -692,10 +621,8 @@ export function buildURLSafetyCorpus(): readonly URLSafetyCase[] {
 			source: 'https&colon;&sol;&sol;ok.dev',
 			value: 'https://ok.dev',
 		},
-		// DIVERGENCE — escaping position. html retains these values UNESCAPED, because
-		// `renderHTML`'s serializer encodes every attribute value on the way out.
-		// `@orkestrel/markdown` escapes the same survivors inside its own sanitizer,
-		// because its result is already a finished attribute value.
+		// Escaping position. These values are retained UNESCAPED, because `renderHTML`'s
+		// serializer — not the sanitizer — encodes every attribute value on the way out.
 		{
 			group: 'escaping',
 			name: 'ampersand in a kept URL',
@@ -711,7 +638,7 @@ export function buildURLSafetyCorpus(): readonly URLSafetyCase[] {
 	]
 }
 
-/** The mirrored corpus's threat families, in corpus order — identical in `@orkestrel/markdown`. */
+/** The URL-safety corpus's threat families, in corpus order. */
 export const URL_SAFETY_GROUPS: readonly string[] = [
 	'controls',
 	'case',

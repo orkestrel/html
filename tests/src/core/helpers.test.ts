@@ -7,10 +7,8 @@ import {
 	attributeOf,
 	collapseSpace,
 	collapseText,
-	createHTML,
 	encodeAttribute,
 	encodeText,
-	escapeMarkdown,
 	extractRegion,
 	foldNode,
 	isSafeURL,
@@ -18,7 +16,6 @@ import {
 	parseDocument,
 	pruneDocument,
 	renderHTML,
-	renderMarkdown,
 	renderText,
 	resolveAttributes,
 	resolveURL,
@@ -27,10 +24,6 @@ import {
 	sanitizeURL,
 	walkNodes,
 } from '@src/core'
-import {
-	parseDocument as parseMarkdown,
-	renderMarkdown as renderCanonicalMarkdown,
-} from '@orkestrel/markdown'
 import { describe, expect, it } from 'vitest'
 import {
 	URL_SAFETY_GROUPS,
@@ -39,12 +32,9 @@ import {
 	buildDiamondHTMLDocument,
 	buildHTMLEntityURLCorpus,
 	buildHTMLRoundtripCorpus,
-	buildMarkdownPipelineInput,
-	buildMarkdownProjectionInputs,
 	buildSharedHTMLPreDocument,
 	buildURLSafetyCorpus,
 	hasAdjacentHTMLText,
-	parseMarkdownProjection,
 } from '../../setup.js'
 
 describe('HTML escaping and URL helpers', () => {
@@ -54,25 +44,6 @@ describe('HTML escaping and URL helpers', () => {
 
 	it('encodes double-quoted attribute values minimally', () => {
 		expect(encodeAttribute('&"<>\'')).toBe("&amp;&quot;<>'")
-	})
-
-	it('escapes every supported markdown syntax marker in literal text', () => {
-		expect(escapeMarkdown('\\*_`[]#>|+-')).toBe('\\\\\\*\\_\\`\\[\\]#>\\|+-')
-	})
-
-	it('escapes markdown block markers only at line starts', () => {
-		expect(escapeMarkdown('# h')).toBe('\\# h')
-		expect(escapeMarkdown('> q')).toBe('\\> q')
-		expect(escapeMarkdown('- x')).toBe('\\- x')
-		expect(escapeMarkdown('+ y')).toBe('\\+ y')
-		expect(escapeMarkdown('1. x')).toBe('1\\. x')
-		expect(escapeMarkdown('10) x')).toBe('10\\) x')
-		expect(escapeMarkdown('a # b')).toBe('a # b')
-		expect(escapeMarkdown('a - b')).toBe('a - b')
-		expect(escapeMarkdown('x 1. y')).toBe('x 1. y')
-		expect(escapeMarkdown('a\n# h')).toBe('a\n\\# h')
-		expect(escapeMarkdown('-nospace')).toBe('-nospace')
-		expect(escapeMarkdown('a | b')).toBe('a \\| b')
 	})
 
 	it('sanitizes adversarial URL forms after entity and control decoding', () => {
@@ -185,16 +156,14 @@ describe('HTML escaping and URL helpers', () => {
 	})
 })
 
-// The scheme/control floor `sanitizeURL` enforces is re-implemented, deliberately, in
-// `@orkestrel/markdown`'s `sanitizeUrl` — one sanitizer per output context, no shared
-// function (guides/src/html.md § The sanitize floor states why). What the two packages
-// share instead is the corpus: `buildURLSafetyCorpus` is mirrored vector-for-vector, in
-// the same order and under the same name, in `@orkestrel/markdown`'s `tests/setup.ts`,
-// so a vector missed here is missed there too. The two packages' dispositions differ on
-// exactly two groups, and each difference is a named test below rather than a quietly
-// relaxed expectation.
-describe('sanitizeURL — mirrored URL-safety corpus (also in @orkestrel/markdown)', () => {
-	it('disposes of every mirrored vector exactly as the corpus records', () => {
+// The scheme and control floor `sanitizeURL` enforces, driven from `buildURLSafetyCorpus`
+// so the whole floor reads as one list of vectors and dispositions (guides/src/html.md §
+// The sanitize floor states the rules). The three tests after the corpus sweep are the
+// rules that follow from WHERE this sanitizer sits — on the AST, upstream of the
+// serializer, behind a caller-replaceable allowlist — each pinned by name rather than
+// left implicit in a corpus row.
+describe('sanitizeURL — URL-safety corpus', () => {
+	it('disposes of every vector exactly as the corpus records', () => {
 		for (const threat of buildURLSafetyCorpus()) {
 			expect({ name: threat.name, value: sanitizeURL(threat.source, SAFE_URL_SCHEMES) }).toEqual({
 				name: threat.name,
@@ -203,16 +172,15 @@ describe('sanitizeURL — mirrored URL-safety corpus (also in @orkestrel/markdow
 		}
 	})
 
-	it('covers every mirrored threat group', () => {
+	it('covers every threat group', () => {
 		const groups = [...new Set(buildURLSafetyCorpus().map((threat) => threat.group))]
 		expect(groups).toEqual([...URL_SAFETY_GROUPS])
 	})
 
-	// Divergence 1 — escaping position. html retains the raw surviving value and encodes
-	// it later, in `renderHTML`'s serializer, because sanitizing happens on the AST and
-	// serialization is a separate downstream pass. `@orkestrel/markdown` escapes inside its
-	// own sanitizer, because its result is already a finished `href` attribute value.
-	it('keeps a surviving URL unescaped for the serializer (@orkestrel/markdown escapes inside its sanitizer)', () => {
+	// Rule 1 — escaping position. The raw surviving value is retained and encoded later, in
+	// `renderHTML`'s serializer, because sanitizing happens on the AST and serialization is
+	// a separate downstream pass.
+	it('keeps a surviving URL unescaped for the serializer', () => {
 		const source = 'https://ok.dev/?a=1&b=2'
 		expect(sanitizeURL(source, SAFE_URL_SCHEMES)).toBe(source)
 		expect(encodeAttribute(sanitizeURL(source, SAFE_URL_SCHEMES))).toBe(
@@ -225,25 +193,20 @@ describe('sanitizeURL — mirrored URL-safety corpus (also in @orkestrel/markdow
 		)
 	})
 
-	// Divergence 2 — the entity-decode pass. html decodes character references to a
-	// bounded fixpoint before reading the scheme, because a hand-built AST can defer
-	// decoding to a later serialize/reparse; a value that decodes to a dangerous scheme is
-	// refused, and one that decodes to an ALLOWED scheme survives decoded.
-	// `@orkestrel/markdown` keeps these same inputs, escaped: it emits the attribute value
-	// itself, so an undecoded reference reaches the browser as inert literal text.
-	it('refuses an entity-encoded scheme outright (@orkestrel/markdown neutralizes it by escaping)', () => {
+	// Rule 2 — the entity-decode pass. Character references decode to a bounded fixpoint
+	// before the scheme is read, because a hand-built AST can defer decoding to a later
+	// serialize/reparse; a value that decodes to a dangerous scheme is refused, and one that
+	// decodes to an ALLOWED scheme survives decoded.
+	it('refuses an entity-encoded scheme outright', () => {
 		expect(sanitizeURL('&#106;avascript:x', SAFE_URL_SCHEMES)).toBe('')
 		expect(sanitizeURL('javascript&colon;x', SAFE_URL_SCHEMES)).toBe('')
 		expect(sanitizeURL('&sol;&sol;evil.dev', SAFE_URL_SCHEMES)).toBe('')
 		expect(sanitizeURL('https&colon;&sol;&sol;ok.dev', SAFE_URL_SCHEMES)).toBe('https://ok.dev')
 	})
 
-	// Divergence 3 — allowlist shape. html's allowlist comes from its caller and REPLACES
-	// the default, so the four dangerous schemes need an unwidenable refusal of their own:
-	// a widened allowlist still admits its safe entries and still cannot buy `javascript`.
-	// `@orkestrel/markdown` cannot express this input at all — its `SAFE_URL_SCHEMES` is
-	// fixed and closed and its `sanitizeUrl` accepts a destination and nothing else, which
-	// is why a hard-ban list there would be dead code rather than a missing defence.
+	// Rule 3 — allowlist shape. The allowlist comes from the caller and REPLACES the
+	// default, so the four dangerous schemes need an unwidenable refusal of their own: a
+	// widened allowlist still admits its safe entries and still cannot buy `javascript`.
 	it('refuses a caller-widened dangerous scheme while honoring the same allowlist for safe ones', () => {
 		const widened = new Set(['http', 'https', 'javascript', 'data', 'vbscript', 'file'])
 		for (const scheme of ['javascript', 'data', 'vbscript', 'file']) {
@@ -707,438 +670,6 @@ describe('renderText', () => {
 	})
 })
 
-describe('renderMarkdown projection', () => {
-	it('projects h1 through h6 and paragraphs', () => {
-		const document = parseDocument(
-			'<h1>One</h1><h2>Two</h2><h3>Three</h3><h4>Four</h4><h5>Five</h5><h6>Six</h6><p>Body</p>',
-		)
-		expect(renderMarkdown(document)).toBe(
-			'# One\n\n## Two\n\n### Three\n\n#### Four\n\n##### Five\n\n###### Six\n\nBody',
-		)
-	})
-
-	it('projects nested unordered and ordered lists with continuation indentation', () => {
-		const document = parseDocument(
-			'<ul><li>one<ul><li>two</li></ul></li><li>three</li></ul><ol start=3><li>four<ol><li>five</li></ol></li></ol>',
-		)
-		expect(renderMarkdown(document)).toBe('- one\n  - two\n- three\n\n3. four\n   1. five')
-	})
-
-	it('projects blockquotes line by line', () => {
-		const document = parseDocument('<blockquote><p>one</p><p>two</p></blockquote>')
-		expect(renderMarkdown(document)).toBe('> one\n>\n> two')
-	})
-
-	it('projects pre-code with a language class to a safe-width fence', () => {
-		const document = parseDocument(
-			'<pre><code class="other language-ts">const fence = ```;</code></pre>',
-		)
-		expect(renderMarkdown(document)).toBe('````ts\nconst fence = ```;\n````')
-	})
-
-	it('projects links, strong, emphasis, inline code, images, and hard breaks', () => {
-		const document = parseDocument(
-			'<p><a href="/guide(a)">link</a> <strong>strong</strong> <b>bold</b> <em>em</em> <i>italic</i> <code>x`y</code><br><img alt="a*b" src="/x.png"></p>',
-		)
-		expect(renderMarkdown(document)).toBe(
-			'[link](/guide\\(a\\)) **strong** **bold** *em* *italic* ``x`y``  \n![a\\*b](/x.png)',
-		)
-	})
-
-	it('bounds inline and fenced code descendant walks by depth', () => {
-		let descendant: HTMLNode = { category: 'text', value: 'beyond-depth' }
-		for (let depth = 0; depth < MAX_DEPTH + 5; depth += 1) {
-			descendant = {
-				category: 'element',
-				name: 'span',
-				attributes: [],
-				children: [descendant],
-			}
-		}
-		const inline: ElementNode = {
-			category: 'element',
-			name: 'code',
-			attributes: [],
-			children: [descendant],
-		}
-		const fenced: ElementNode = {
-			category: 'element',
-			name: 'pre',
-			attributes: [],
-			children: [{ ...inline, attributes: [{ name: 'class', value: 'language-ts' }] }],
-		}
-		expect(renderMarkdown(inline)).not.toContain('beyond-depth')
-		expect(renderMarkdown(fenced)).not.toContain('beyond-depth')
-	})
-
-	it('terminates a cyclic inline-code descendant walk within the shared bound', () => {
-		const children: HTMLNode[] = []
-		const code: ElementNode = {
-			category: 'element',
-			name: 'code',
-			attributes: [],
-			children,
-		}
-		children.push(code)
-		const rendered = renderMarkdown(code)
-		expect(rendered.length).toBeLessThanOrEqual(MAX_DEPTH * 4)
-	})
-
-	it('bounds branching cycles in inline and fenced code without exponential frame growth', () => {
-		const inline = buildBranchingHTMLElement('code')
-		const fenced: ElementNode = {
-			category: 'element',
-			name: 'pre',
-			attributes: [],
-			children: [buildBranchingHTMLElement('code')],
-		}
-		expect(renderMarkdown(inline).length).toBeLessThanOrEqual(MAX_DEPTH * 4)
-		expect(renderMarkdown(fenced).length).toBeLessThanOrEqual(MAX_DEPTH * 8)
-	})
-
-	it('bounds branching cycles and diamonds through the pre fallback path', () => {
-		const branching = buildBranchingHTMLElement('pre')
-		const diamond = buildDiamondHTMLDocument(MAX_DEPTH).children[0]
-		const fallback: ElementNode = {
-			category: 'element',
-			name: 'pre',
-			attributes: [],
-			children: diamond === undefined ? [] : [diamond],
-		}
-		expect(renderMarkdown(branching).length).toBeLessThanOrEqual(MAX_DEPTH * 8)
-		expect(renderMarkdown(fallback).length).toBeLessThan(MAX_DEPTH * 16)
-	})
-
-	it('scales linearly when many pre fallbacks share one comment-heavy subtree', () => {
-		const small = buildSharedHTMLPreDocument(2_000)
-		const large = buildSharedHTMLPreDocument(4_000)
-		const smallStart = performance.now()
-		renderMarkdown(small)
-		const smallElapsed = performance.now() - smallStart
-		const largeStart = performance.now()
-		const markdown = renderMarkdown(large)
-		const largeElapsed = performance.now() - largeStart
-		expect(largeElapsed).toBeLessThan(smallElapsed * 3 + 100)
-		expect(largeElapsed).toBeLessThan(750)
-		expect(markdown.length).toBeLessThan(50_000)
-	})
-
-	it('preserves text projection semantics in a pre fallback without code', () => {
-		const document = parseDocument('<pre> a   <b>b</b>\n<div>c</div><script>drop</script> d </pre>')
-		const pre = document.children[0]
-		expect(pre?.category).toBe('element')
-		if (pre?.category !== 'element') return
-		expect(renderMarkdown(pre)).toBe(`\`\`\`\n${renderText(pre)}\n\`\`\``)
-	})
-
-	it('projects horizontal rules and GFM tables', () => {
-		const document = parseDocument(
-			'<hr><table><thead><tr><th>Name</th><th>Value</th></tr></thead><tbody><tr><td>a|b</td><td>1</td></tr><tr><td>c</td></tr></tbody></table>',
-		)
-		expect(renderMarkdown(document)).toBe(
-			'---\n\n| Name | Value |\n| --- | --- |\n| a\\|b | 1 |\n| c |  |',
-		)
-	})
-
-	it('unwraps unknown elements and escapes literal markdown syntax', () => {
-		const document = parseDocument(
-			'<section><p>*literal* [text] # mark</p><wrapper><p>second</p></wrapper></section>',
-		)
-		expect(renderMarkdown(document)).toBe('\\*literal\\* \\[text\\] # mark\n\nsecond')
-	})
-})
-
-describe('renderMarkdown markdown-package interop', () => {
-	const inputs = buildMarkdownProjectionInputs()
-
-	it('reparses headings one through six and a paragraph as the expected blocks', () => {
-		expect(parseMarkdownProjection(inputs.headings)).toEqual({
-			element: 'document',
-			children: [
-				{ element: 'heading', level: 1, children: [{ element: 'text', value: 'One' }] },
-				{ element: 'heading', level: 2, children: [{ element: 'text', value: 'Two' }] },
-				{ element: 'heading', level: 3, children: [{ element: 'text', value: 'Three' }] },
-				{ element: 'heading', level: 4, children: [{ element: 'text', value: 'Four' }] },
-				{ element: 'heading', level: 5, children: [{ element: 'text', value: 'Five' }] },
-				{ element: 'heading', level: 6, children: [{ element: 'text', value: 'Six' }] },
-				{ element: 'paragraph', children: [{ element: 'text', value: 'Body' }] },
-			],
-		})
-	})
-
-	it('reparses nested unordered and ordered lists with their structure and ordinal', () => {
-		expect(parseMarkdownProjection(inputs.lists)).toEqual({
-			element: 'document',
-			children: [
-				{
-					element: 'list',
-					ordered: false,
-					start: 1,
-					items: [
-						{
-							element: 'listItem',
-							children: [
-								{ element: 'paragraph', children: [{ element: 'text', value: 'one' }] },
-								{
-									element: 'list',
-									ordered: false,
-									start: 1,
-									items: [
-										{
-											element: 'listItem',
-											children: [
-												{
-													element: 'paragraph',
-													children: [{ element: 'text', value: 'two' }],
-												},
-											],
-										},
-									],
-								},
-							],
-						},
-						{
-							element: 'listItem',
-							children: [
-								{
-									element: 'paragraph',
-									children: [{ element: 'text', value: 'three' }],
-								},
-							],
-						},
-					],
-				},
-				{
-					element: 'list',
-					ordered: true,
-					start: 3,
-					items: [
-						{
-							element: 'listItem',
-							children: [
-								{
-									element: 'paragraph',
-									children: [{ element: 'text', value: 'four' }],
-								},
-								{
-									element: 'list',
-									ordered: true,
-									start: 1,
-									items: [
-										{
-											element: 'listItem',
-											children: [
-												{
-													element: 'paragraph',
-													children: [{ element: 'text', value: 'five' }],
-												},
-											],
-										},
-									],
-								},
-							],
-						},
-					],
-				},
-			],
-		})
-	})
-
-	it('reparses blockquotes and language-tagged fenced code as nested blocks', () => {
-		expect(parseMarkdownProjection(inputs.quote)).toEqual({
-			element: 'document',
-			children: [
-				{
-					element: 'blockquote',
-					children: [
-						{
-							element: 'paragraph',
-							children: [{ element: 'text', value: 'quoted' }],
-						},
-						{
-							element: 'list',
-							ordered: false,
-							start: 1,
-							items: [
-								{
-									element: 'listItem',
-									children: [
-										{
-											element: 'paragraph',
-											children: [{ element: 'text', value: 'nested' }],
-										},
-									],
-								},
-							],
-						},
-					],
-				},
-			],
-		})
-		expect(parseMarkdownProjection(inputs.code)).toEqual({
-			element: 'document',
-			children: [{ element: 'codeBlock', lang: 'ts', code: 'const value = 1' }],
-		})
-	})
-
-	it('reparses links, emphasis, inline code, images, and hard breaks without data loss', () => {
-		expect(parseMarkdownProjection(inputs.inline)).toEqual({
-			element: 'document',
-			children: [
-				{
-					element: 'paragraph',
-					children: [
-						{
-							element: 'link',
-							href: 'https://example.test/guide',
-							children: [{ element: 'text', value: 'guide' }],
-						},
-						{ element: 'text', value: ' ' },
-						{
-							element: 'emphasis',
-							strong: true,
-							children: [{ element: 'text', value: 'strong' }],
-						},
-						{ element: 'text', value: ' ' },
-						{
-							element: 'emphasis',
-							strong: false,
-							children: [{ element: 'text', value: 'emphasis' }],
-						},
-						{ element: 'text', value: ' ' },
-						{ element: 'codeSpan', value: 'inline' },
-						{ element: 'text', value: '\nnext !' },
-						{
-							element: 'link',
-							href: 'https://example.test/image.png',
-							children: [{ element: 'text', value: 'portrait' }],
-						},
-					],
-				},
-			],
-		})
-	})
-
-	it('reparses thematic breaks and GFM tables with cells and default alignments intact', () => {
-		expect(parseMarkdownProjection(inputs.table)).toEqual({
-			element: 'document',
-			children: [
-				{ element: 'thematicBreak' },
-				{
-					element: 'table',
-					header: [[{ element: 'text', value: 'Name' }], [{ element: 'text', value: 'Value' }]],
-					rows: [
-						[[{ element: 'text', value: 'Alpha|Beta' }], [{ element: 'text', value: '1' }]],
-						[[{ element: 'text', value: 'Gamma' }], [{ element: 'text', value: '2' }]],
-					],
-					align: ['none', 'none'],
-				},
-			],
-		})
-	})
-
-	it('keeps adversarial markdown syntax in literal paragraph text nodes', () => {
-		const source = [
-			'<p>* _ ` [ ]</p>',
-			'<p>| Head | Value |\n| --- | --- |</p>',
-			'<p># heading</p>',
-			'<p>&gt; quote</p>',
-			'<p>1. ordered</p>',
-			'<p>- bullet</p>',
-		].join('')
-		expect(parseMarkdownProjection(source)).toEqual({
-			element: 'document',
-			children: [
-				{
-					element: 'paragraph',
-					children: [{ element: 'text', value: '* _ ` [ ]' }],
-				},
-				{
-					element: 'paragraph',
-					children: [{ element: 'text', value: '| Head | Value |\n| --- | --- |' }],
-				},
-				{ element: 'paragraph', children: [{ element: 'text', value: '# heading' }] },
-				{ element: 'paragraph', children: [{ element: 'text', value: '> quote' }] },
-				{ element: 'paragraph', children: [{ element: 'text', value: '1. ordered' }] },
-				{ element: 'paragraph', children: [{ element: 'text', value: '- bullet' }] },
-			],
-		})
-	})
-
-	it('keeps structure and neutralizes boilerplate and javascript through the full pipeline', () => {
-		const markdown = renderMarkdown(
-			createHTML(buildMarkdownPipelineInput())
-				.sanitize()
-				.distill({ base: 'https://example.test/docs/page.html' }).document,
-		)
-		expect(markdown).not.toContain('Noise')
-		expect(markdown).not.toContain('Menu')
-		expect(markdown).not.toContain('Promoted')
-		expect(markdown).not.toContain('Copyright')
-		expect(markdown).not.toContain('javascript:')
-		expect(parseMarkdown(markdown)).toEqual({
-			element: 'document',
-			children: [
-				{
-					element: 'heading',
-					level: 1,
-					children: [{ element: 'text', value: 'Interop' }],
-				},
-				{
-					element: 'paragraph',
-					children: [
-						{ element: 'text', value: 'Read the ' },
-						{
-							element: 'link',
-							href: 'https://example.test/guide',
-							children: [{ element: 'text', value: 'guide' }],
-						},
-						{ element: 'text', value: ' and ' },
-						{
-							element: 'link',
-							href: '',
-							children: [{ element: 'text', value: 'unsafe' }],
-						},
-						{ element: 'text', value: ' link.' },
-					],
-				},
-				{
-					element: 'list',
-					ordered: false,
-					start: 1,
-					items: [
-						{
-							element: 'listItem',
-							children: [
-								{
-									element: 'paragraph',
-									children: [{ element: 'text', value: 'Alpha' }],
-								},
-							],
-						},
-						{
-							element: 'listItem',
-							children: [
-								{
-									element: 'paragraph',
-									children: [{ element: 'text', value: 'Beta' }],
-								},
-							],
-						},
-					],
-				},
-			],
-		})
-	})
-
-	it('stabilizes every HTML projection after one markdown canonicalization cycle', () => {
-		for (const source of Object.values(inputs)) {
-			const once = renderCanonicalMarkdown(parseMarkdownProjection(source))
-			expect(renderCanonicalMarkdown(parseMarkdown(once))).toBe(once)
-		}
-	})
-})
-
 describe('AST walkers', () => {
 	it('walkNodes yields depth-first pre-order with the root included', () => {
 		const document = parseDocument('<div><p>x<strong>y</strong></p><br></div>')
@@ -1203,7 +734,6 @@ describe('AST walkers', () => {
 		const document: HTMLDocument = buildDeepHTMLDocument(MAX_DEPTH + 1_000)
 		expect(() => renderHTML(document)).not.toThrow()
 		expect(() => renderText(document)).not.toThrow()
-		expect(() => renderMarkdown(document)).not.toThrow()
 		expect(() => [...walkNodes(document)]).not.toThrow()
 		expect(() =>
 			foldNode(document, {
@@ -1223,7 +753,6 @@ describe('AST walkers', () => {
 		const document: HTMLDocument = { category: 'document', children: [element] }
 		expect(() => renderHTML(document)).not.toThrow()
 		expect(() => renderText(document)).not.toThrow()
-		expect(() => renderMarkdown(document)).not.toThrow()
 		expect(() => [...walkNodes(document)]).not.toThrow()
 		expect(() =>
 			foldNode(document, {
@@ -1243,7 +772,6 @@ describe('AST walkers', () => {
 		const document = buildDiamondHTMLDocument(MAX_DEPTH)
 		expect(renderHTML(document).length).toBeLessThan(MAX_DEPTH * 32)
 		expect(renderText(document).length).toBeLessThan(MAX_DEPTH * 8)
-		expect(renderMarkdown(document).length).toBeLessThan(MAX_DEPTH * 8)
 		expect([...walkNodes(document)].length).toBeLessThanOrEqual(MAX_DEPTH + 2)
 		expect(
 			foldNode(document, {
@@ -1263,6 +791,5 @@ describe('AST walkers', () => {
 		const document = buildSharedHTMLPreDocument(count)
 		expect(renderHTML(document).length).toBeLessThan(count * 50)
 		expect(renderText(document)).toBe('')
-		expect(renderMarkdown(document).length).toBeLessThan(50_000)
 	})
 })

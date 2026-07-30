@@ -28,10 +28,10 @@ import { attributeShape, commentShape, doctypeShape, textShape } from './shapers
  *
  * @example
  * ```ts
- * import { createHTML, renderMarkdown } from '@orkestrel/html'
+ * import { createHTML, renderText } from '@orkestrel/html'
  *
  * const page = createHTML('<h1>Title</h1><p>Read the <a href="/guide">guide</a>.</p>')
- * renderMarkdown(page.sanitize().document) // '# Title\n\nRead the [guide](/guide).'
+ * renderText(page.sanitize().document) // 'Title\nRead the guide.'
  * ```
  */
 export function createHTML(input: string | HTMLDocument): HTMLInterface {
