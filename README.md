@@ -19,6 +19,12 @@ prose a reader — or a language model — actually wants.
 npm install @orkestrel/html
 ```
 
+## Requirements
+
+- Node.js >= 22.12
+- Ships ES and CommonJS builds with its own `.d.ts` types
+- One runtime dependency, `@orkestrel/contract`
+
 ## Usage
 
 ```ts

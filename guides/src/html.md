@@ -285,18 +285,18 @@ Distilling is idempotent on its own output, and like every other operation here 
 
 ## Text is the lossy projection
 
-There are two renderers, and they are not equivalent. `renderHTML` is the structure-preserving one: canonical, reparsable, and — on a distilled document — the smallest form that still says which line was a heading, where a link pointed, and which cells belonged to one row. `renderText` is the flat one. Blocks and `br` provide line boundaries, direct cells within a row use tabs, rows within a table use newlines, and text beneath `pre` keeps its source whitespace; other text whitespace collapses. What it still drops is worth naming instead of discovering:
+There are two renderers, and they are not equivalent. `renderHTML` is the structure-preserving one: canonical, reparsable, and — on a distilled document — the smallest form that still says which line was a heading and where a link pointed. `renderText` is the flat one. Blocks and `br` provide line boundaries, direct cells within a row use tabs, rows within a table use newlines, and text beneath `pre` keeps its source whitespace; other text whitespace collapses. What it still drops is worth naming instead of discovering:
 
-| Structure                    | In `renderText`'s output                                                                                                |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `h1` … `h6`                  | A bare line, at no level — indistinguishable from a paragraph or a list item                                            |
-| `ul` / `ol` / `li`           | One line per block inside each item, with no marker, no ordinal, no nesting depth                                       |
-| `a`                          | The link TEXT only; the destination `base` just resolved is gone                                                        |
-| `img`                        | Nothing — `alt` text is an attribute, and attributes do not project                                                     |
-| `table` / `tr` / `th` / `td` | Tabs preserve direct cell positions, including empty cells, and newlines preserve rows; spans and attributes do not     |
-| `pre` / `code`               | Whitespace beneath `pre` stays verbatim; standalone `code` collapses normally; neither gains a fence or language marker |
-| `blockquote`, `hr`           | Unmarked lines, and nothing at all                                                                                      |
-| `strong` / `b`, `em` / `i`   | Their text, unmarked                                                                                                    |
+| Structure                    | In `renderText`'s output                                                                                                                                                 |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `h1` … `h6`                  | A bare line, at no level — indistinguishable from a paragraph or a list item                                                                                             |
+| `ul` / `ol` / `li`           | One line per block inside each item, with no marker, no ordinal, no nesting depth                                                                                        |
+| `a`                          | The link TEXT only; the destination `base` just resolved is gone                                                                                                         |
+| `img`                        | Nothing — `alt` text is an attribute, and attributes do not project                                                                                                      |
+| `table` / `tr` / `th` / `td` | Tabs preserve direct cell positions, including empty cells, and newlines preserve rows; a `th` is indistinguishable from a `td`, and spans and attributes do not survive |
+| `pre` / `code`               | Whitespace beneath `pre` stays verbatim; standalone `code` collapses normally; neither gains a fence or language marker                                                  |
+| `blockquote`, `hr`           | Unmarked lines; an `hr` is a bare line boundary with no rule                                                                                                             |
+| `strong` / `b`, `em` / `i`   | Their text, unmarked                                                                                                                                                     |
 
 That table is the whole reason `distill` returns a handle. For a reader, a diff, or a summarizer that only needs prose, `renderText` is exactly right and cheaper than anything else here. For a consumer that reasons about structure — a language model asked which heading a passage sits under, or where a link goes — read the distilled AST directly, or serialize it with `renderHTML` and keep the structure the distiller worked to find. Choosing `renderText` there is choosing to throw that structure away.
 

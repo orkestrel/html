@@ -31,7 +31,7 @@ import { attributeShape, commentShape, doctypeShape, textShape } from './shapers
  * import { createHTML, renderText } from '@orkestrel/html'
  *
  * const page = createHTML('<h1>Title</h1><p>Read the <a href="/guide">guide</a>.</p>')
- * renderText(page.sanitize().document) // 'Title\nRead the guide.'
+ * renderText(page.document) // 'Title\nRead the guide.'
  * ```
  */
 export function createHTML(input: string | HTMLDocument): HTMLInterface {

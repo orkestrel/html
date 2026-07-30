@@ -1,7 +1,7 @@
 {
 	"name": "@orkestrel/html",
 	"version": "0.0.1",
-	"description": "A typed HTML AST: total parsing, canonical rendering, sanitizing against a fixed floor, and distilling a page to the content an LLM should read.",
+	"description": "A typed HTML AST: total parsing, canonical rendering, sanitizing against a fixed floor, and distilling a page to the content a language model should read.",
 	"keywords": [
 		"ast",
 		"distill",
