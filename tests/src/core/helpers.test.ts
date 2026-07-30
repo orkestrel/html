@@ -33,6 +33,7 @@ import {
 } from '@orkestrel/markdown'
 import { describe, expect, it } from 'vitest'
 import {
+	URL_SAFETY_GROUPS,
 	buildDeepHTMLDocument,
 	buildBranchingHTMLElement,
 	buildDiamondHTMLDocument,
@@ -41,6 +42,7 @@ import {
 	buildMarkdownPipelineInput,
 	buildMarkdownProjectionInputs,
 	buildSharedHTMLPreDocument,
+	buildURLSafetyCorpus,
 	hasAdjacentHTMLText,
 	parseMarkdownProjection,
 } from '../../setup.js'
@@ -180,6 +182,78 @@ describe('HTML escaping and URL helpers', () => {
 
 	it('collapses inter-word whitespace and trims edges', () => {
 		expect(collapseSpace(' \talpha\r\n beta  gamma\n')).toBe('alpha beta gamma')
+	})
+})
+
+// The scheme/control floor `sanitizeURL` enforces is re-implemented, deliberately, in
+// `@orkestrel/markdown`'s `sanitizeUrl` — one sanitizer per output context, no shared
+// function (guides/src/html.md § The sanitize floor states why). What the two packages
+// share instead is the corpus: `buildURLSafetyCorpus` is mirrored vector-for-vector, in
+// the same order and under the same name, in `@orkestrel/markdown`'s `tests/setup.ts`,
+// so a vector missed here is missed there too. The two packages' dispositions differ on
+// exactly two groups, and each difference is a named test below rather than a quietly
+// relaxed expectation.
+describe('sanitizeURL — mirrored URL-safety corpus (also in @orkestrel/markdown)', () => {
+	it('disposes of every mirrored vector exactly as the corpus records', () => {
+		for (const threat of buildURLSafetyCorpus()) {
+			expect({ name: threat.name, value: sanitizeURL(threat.source, SAFE_URL_SCHEMES) }).toEqual({
+				name: threat.name,
+				value: threat.value ?? '',
+			})
+		}
+	})
+
+	it('covers every mirrored threat group', () => {
+		const groups = [...new Set(buildURLSafetyCorpus().map((threat) => threat.group))]
+		expect(groups).toEqual([...URL_SAFETY_GROUPS])
+	})
+
+	// Divergence 1 — escaping position. html retains the raw surviving value and encodes
+	// it later, in `renderHTML`'s serializer, because sanitizing happens on the AST and
+	// serialization is a separate downstream pass. `@orkestrel/markdown` escapes inside its
+	// own sanitizer, because its result is already a finished `href` attribute value.
+	it('keeps a surviving URL unescaped for the serializer (@orkestrel/markdown escapes inside its sanitizer)', () => {
+		const source = 'https://ok.dev/?a=1&b=2'
+		expect(sanitizeURL(source, SAFE_URL_SCHEMES)).toBe(source)
+		expect(encodeAttribute(sanitizeURL(source, SAFE_URL_SCHEMES))).toBe(
+			'https://ok.dev/?a=1&amp;b=2',
+		)
+		// The quote survivor is the one that matters: it cannot break out of the attribute,
+		// because the serializer — not the sanitizer — is what encodes it.
+		expect(encodeAttribute(sanitizeURL('https://ok.dev/"onmouseover=x', SAFE_URL_SCHEMES))).toBe(
+			'https://ok.dev/&quot;onmouseover=x',
+		)
+	})
+
+	// Divergence 2 — the entity-decode pass. html decodes character references to a
+	// bounded fixpoint before reading the scheme, because a hand-built AST can defer
+	// decoding to a later serialize/reparse; a value that decodes to a dangerous scheme is
+	// refused, and one that decodes to an ALLOWED scheme survives decoded.
+	// `@orkestrel/markdown` keeps these same inputs, escaped: it emits the attribute value
+	// itself, so an undecoded reference reaches the browser as inert literal text.
+	it('refuses an entity-encoded scheme outright (@orkestrel/markdown neutralizes it by escaping)', () => {
+		expect(sanitizeURL('&#106;avascript:x', SAFE_URL_SCHEMES)).toBe('')
+		expect(sanitizeURL('javascript&colon;x', SAFE_URL_SCHEMES)).toBe('')
+		expect(sanitizeURL('&sol;&sol;evil.dev', SAFE_URL_SCHEMES)).toBe('')
+		expect(sanitizeURL('https&colon;&sol;&sol;ok.dev', SAFE_URL_SCHEMES)).toBe('https://ok.dev')
+	})
+
+	// Divergence 3 — allowlist shape. html's allowlist comes from its caller and REPLACES
+	// the default, so the four dangerous schemes need an unwidenable refusal of their own:
+	// a widened allowlist still admits its safe entries and still cannot buy `javascript`.
+	// `@orkestrel/markdown` cannot express this input at all — its `SAFE_URL_SCHEMES` is
+	// fixed and closed and its `sanitizeUrl` accepts a destination and nothing else, which
+	// is why a hard-ban list there would be dead code rather than a missing defence.
+	it('refuses a caller-widened dangerous scheme while honoring the same allowlist for safe ones', () => {
+		const widened = new Set(['http', 'https', 'javascript', 'data', 'vbscript', 'file'])
+		for (const scheme of ['javascript', 'data', 'vbscript', 'file']) {
+			expect(sanitizeURL(`${scheme}:payload`, widened)).toBe('')
+		}
+		expect(sanitizeURL('https://ok.dev', widened)).toBe('https://ok.dev')
+		expect([...SAFE_URL_SCHEMES].sort()).toEqual(['http', 'https', 'mailto', 'tel'])
+		for (const scheme of ['javascript', 'data', 'vbscript', 'file']) {
+			expect(SAFE_URL_SCHEMES.includes(scheme)).toBe(false)
+		}
 	})
 })
 

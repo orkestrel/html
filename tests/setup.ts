@@ -604,6 +604,123 @@ export function buildHTMLEntityURLCorpus(): readonly HTMLEntityURLCase[] {
 	]
 }
 
+// ── Mirrored URL-safety corpus ───────────────────────────────────────────────
+//
+// `sanitizeURL`'s lower floor — strip every codepoint ≤ U+0020 and U+007F–U+009F,
+// refuse any two-character protocol-relative prefix drawn from `/` and `\`, extract
+// an ASCII scheme, enforce an allowlist, keep relative / anchor / scheme-less values —
+// is re-implemented, deliberately, in `@orkestrel/markdown`'s `sanitizeUrl`: each
+// package owns the sanitizer for its own output context (guides/src/html.md § The
+// sanitize floor explains why). There is therefore no shared function to test once, and
+// the corpus below is what the two packages DO share. It is mirrored vector-for-vector,
+// in this order, under the same name in `@orkestrel/markdown`'s `tests/setup.ts`, so a
+// vector missed here is missed there too and a reader can diff the two lists by eye.
+//
+// The `controls` / `case` / `relative` / `kept` / `schemes` groups are the floor both
+// packages agree on, vector for vector. The `entities` and `escaping` groups carry the
+// SAME inputs with each package's own disposition — the two legitimate divergences,
+// explained at each group below and asserted as named tests in helpers.test.ts.
+
+/** One adversarial URL and the value this package's sanitizer may retain. */
+export interface URLSafetyCase {
+	/** The threat family, used to inventory corpus coverage. */
+	readonly group: string
+	/** The behavior-specific case name. */
+	readonly name: string
+	/** The raw URL handed to the sanitizer. */
+	readonly source: string
+	/** The retained value; absence means the URL is refused (dropped to `''`). */
+	readonly value?: string
+}
+
+/**
+ * Build the URL-safety corpus mirrored in `@orkestrel/markdown`, with html's dispositions.
+ *
+ * @returns Control splices, case variance, protocol-relative forms, kept destinations,
+ * refused schemes, entity obfuscation, and unescaped survivors
+ */
+export function buildURLSafetyCorpus(): readonly URLSafetyCase[] {
+	return [
+		// Controls and whitespace are stripped BEFORE the scheme is read, so a splice
+		// cannot hide a scheme from the allowlist check.
+		{ group: 'controls', name: 'tab-spliced scheme', source: 'java\tscript:alert(1)' },
+		{ group: 'controls', name: 'newline-spliced scheme', source: 'java\nscript:alert(1)' },
+		{ group: 'controls', name: 'NUL-spliced scheme', source: 'java\u0000script:alert(1)' },
+		{ group: 'controls', name: 'C1-spliced scheme', source: 'java\u0085script:alert(1)' },
+		{ group: 'controls', name: 'slash-spliced protocol-relative', source: '/\t/evil.dev' },
+		{ group: 'controls', name: 'leading-space scheme', source: '  javascript:alert(1)' },
+		// The scheme comparison is case-insensitive in both directions: a dangerous
+		// scheme cannot escape by case, and a safe one cannot be refused by it.
+		{ group: 'case', name: 'mixed-case javascript', source: 'JaVaScRiPt:alert(1)' },
+		{ group: 'case', name: 'mixed-case HTTPS', source: 'HtTpS://ok.dev', value: 'HtTpS://ok.dev' },
+		// All four two-character protocol-relative prefixes inherit the embedding page's
+		// scheme; a SINGLE leading `/` or `\` is same-origin relative and survives.
+		{ group: 'relative', name: 'double slash', source: '//evil.dev' },
+		{ group: 'relative', name: 'double backslash', source: '\\\\evil.dev' },
+		{ group: 'relative', name: 'slash backslash', source: '/\\evil.dev' },
+		{ group: 'relative', name: 'backslash slash', source: '\\/evil.dev' },
+		{ group: 'relative', name: 'single backslash', source: '\\evil.dev', value: '\\evil.dev' },
+		{ group: 'kept', name: 'absolute path', source: '/path', value: '/path' },
+		{ group: 'kept', name: 'anchor', source: '#anchor', value: '#anchor' },
+		{ group: 'kept', name: 'query', source: '?q=1', value: '?q=1' },
+		{ group: 'kept', name: 'mailto', source: 'mailto:a@b.dev', value: 'mailto:a@b.dev' },
+		{ group: 'kept', name: 'tel', source: 'tel:+15551234', value: 'tel:+15551234' },
+		{ group: 'kept', name: 'https', source: 'https://ok.dev', value: 'https://ok.dev' },
+		// An empty URL has nothing to refuse and nothing to keep.
+		{ group: 'kept', name: 'empty', source: '', value: '' },
+		{ group: 'schemes', name: 'javascript', source: 'javascript:alert(1)' },
+		{ group: 'schemes', name: 'data', source: 'data:text/html,<script>' },
+		{ group: 'schemes', name: 'file', source: 'file:///etc/passwd' },
+		{ group: 'schemes', name: 'vbscript', source: 'vbscript:msgbox' },
+		{ group: 'schemes', name: 'unlisted scheme', source: 'ftp://host' },
+		// DIVERGENCE — the entity-decode pass. `@orkestrel/markdown` KEEPS every vector in
+		// this group, escaped: it emits a finished `href` attribute value, so an undecoded
+		// reference reaches the browser as literal text whose `:` never begins a scheme.
+		// html has no such luxury — its sanitized value is re-serialized, and a hand-built
+		// AST can defer decoding to a later parse — so it decodes character references to a
+		// bounded fixpoint first and refuses what decodes to a dangerous scheme. An
+		// obfuscated ALLOWED scheme survives, decoded.
+		{ group: 'entities', name: 'decimal entity scheme', source: '&#106;avascript:x' },
+		{ group: 'entities', name: 'hex entity scheme', source: '&#x6a;avascript:x' },
+		{ group: 'entities', name: 'named colon', source: 'javascript&colon;x' },
+		{ group: 'entities', name: 'double-encoded colon', source: 'javascript&amp;colon;x' },
+		{ group: 'entities', name: 'entity protocol-relative', source: '&sol;&sol;evil.dev' },
+		{
+			group: 'entities',
+			name: 'entity-obfuscated allowed scheme',
+			source: 'https&colon;&sol;&sol;ok.dev',
+			value: 'https://ok.dev',
+		},
+		// DIVERGENCE — escaping position. html retains these values UNESCAPED, because
+		// `renderHTML`'s serializer encodes every attribute value on the way out.
+		// `@orkestrel/markdown` escapes the same survivors inside its own sanitizer,
+		// because its result is already a finished attribute value.
+		{
+			group: 'escaping',
+			name: 'ampersand in a kept URL',
+			source: 'https://ok.dev/?a=1&b=2',
+			value: 'https://ok.dev/?a=1&b=2',
+		},
+		{
+			group: 'escaping',
+			name: 'quote in a kept URL',
+			source: 'https://ok.dev/"onmouseover=x',
+			value: 'https://ok.dev/"onmouseover=x',
+		},
+	]
+}
+
+/** The mirrored corpus's threat families, in corpus order — identical in `@orkestrel/markdown`. */
+export const URL_SAFETY_GROUPS: readonly string[] = [
+	'controls',
+	'case',
+	'relative',
+	'kept',
+	'schemes',
+	'entities',
+	'escaping',
+]
+
 /**
  * Build a hand-authored document deeper than the parser permits.
  *
