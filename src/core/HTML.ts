@@ -209,13 +209,13 @@ export class HTML implements HTMLInterface {
 	 * ```
 	 */
 	sanitize(options?: SanitizeOptions): HTMLInterface {
-		const elements = options?.elements ?? new Set(SAFE_ELEMENTS)
-		const attributes = options?.attributes ?? new Set(SAFE_ATTRIBUTES)
-		const schemes = options?.schemes ?? new Set(SAFE_URL_SCHEMES)
+		const elements = new Set(options?.elements ?? SAFE_ELEMENTS)
+		const attributes = new Set(options?.attributes ?? SAFE_ATTRIBUTES)
+		const schemes = new Set(options?.schemes ?? SAFE_URL_SCHEMES)
 		const comments = options?.comments ?? false
 		return new HTML(
 			pruneDocument(this.#document, (node) =>
-				this.#cleanNode(node, { attributes, comments, elements, schemes }),
+				this.#cleanNode(node, elements, attributes, schemes, comments),
 			),
 		)
 	}
@@ -250,8 +250,8 @@ export class HTML implements HTMLInterface {
 	 * ```
 	 */
 	distill(options?: DistillOptions): HTMLInterface {
-		const boilerplate = options?.boilerplate ?? new Set(BOILERPLATE_ELEMENTS)
-		const elements = options?.elements ?? new Set(CONTENT_ELEMENTS)
+		const boilerplate = new Set(options?.boilerplate ?? BOILERPLATE_ELEMENTS)
+		const elements = new Set(options?.elements ?? CONTENT_ELEMENTS)
 		const base = options?.base
 		const visible = pruneDocument(this.#document, (node) => this.#pruneRegion(node, boilerplate))
 		const rooted = extractRegion(new HTML(visible).sanitize().document, REGION_ELEMENTS)
@@ -262,12 +262,18 @@ export class HTML implements HTMLInterface {
 	// node its children already sanitized: the floor first (an unsafe subtree goes whole),
 	// then the allowlist (a safe element outside it unwraps to its children), then the
 	// attribute filter. Unwrapping splices text together, so every rebuilt list is rejoined.
-	#cleanNode(node: HTMLNode, options: Required<SanitizeOptions>): readonly HTMLNode[] {
+	#cleanNode(
+		node: HTMLNode,
+		elements: ReadonlySet<string>,
+		attributes: ReadonlySet<string>,
+		schemes: ReadonlySet<string>,
+		comments: boolean,
+	): readonly HTMLNode[] {
 		if (node.category === 'document') {
 			return [{ category: 'document', children: mergeText(node.children) }]
 		}
 		if (node.category === 'comment') {
-			if (!options.comments) return []
+			if (!comments) return []
 			const normalized = parseDocument(renderHTML(node)).children[0]
 			return normalized?.category === 'comment' ? [normalized] : []
 		}
@@ -278,12 +284,12 @@ export class HTML implements HTMLInterface {
 		if (node.category !== 'element') return [node]
 		const name = node.name.toLowerCase()
 		if (UNSAFE_ELEMENTS.includes(name)) return []
-		if (!options.elements.has(name)) return node.children
+		if (!elements.has(name)) return node.children
 		return [
 			{
 				category: 'element',
 				name,
-				attributes: sanitizeAttributes(node, options.attributes, options.schemes),
+				attributes: sanitizeAttributes(node, attributes, schemes),
 				children: VOID_ELEMENTS.includes(name) ? [] : mergeText(node.children),
 			},
 		]

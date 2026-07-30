@@ -1,7 +1,18 @@
-import type { ElementNode, HTMLDocument, HTMLHandlers, HTMLNode, TextNode } from '@src/core'
+import type {
+	DistillOptions,
+	ElementNode,
+	HTMLDocument,
+	HTMLHandlers,
+	HTMLNode,
+	SanitizeOptions,
+	TextNode,
+} from '@src/core'
 import {
+	BOILERPLATE_ELEMENTS,
+	CONTENT_ELEMENTS,
 	HTML,
 	MAX_DEPTH,
+	SAFE_ATTRIBUTES,
 	SAFE_ELEMENTS,
 	SAFE_URL_SCHEMES,
 	UNSAFE_ELEMENTS,
@@ -315,6 +326,46 @@ describe('HTML - stream', () => {
 })
 
 describe('HTML - sanitize floor', () => {
+	it('accepts exported arrays and caller sets for every sanitize allowlist', () => {
+		expectTypeOf<SanitizeOptions['elements']>().toEqualTypeOf<
+			ReadonlySet<string> | readonly string[] | undefined
+		>()
+		const source =
+			'<p title="kept" onclick="drop()">text</p><a href="https://example.test">link</a>'
+		const arrays = new HTML(source).sanitize({
+			elements: SAFE_ELEMENTS,
+			attributes: SAFE_ATTRIBUTES,
+			schemes: SAFE_URL_SCHEMES,
+		}).document
+		const sets = new HTML(source).sanitize({
+			elements: new Set(SAFE_ELEMENTS),
+			attributes: new Set(SAFE_ATTRIBUTES),
+			schemes: new Set(SAFE_URL_SCHEMES),
+		}).document
+		expect(arrays).toEqual(sets)
+		expect(renderHTML(arrays)).toBe(
+			'<p title="kept">text</p><a href="https://example.test">link</a>',
+		)
+	})
+
+	it('keeps the sanitize floor beneath array and Set allowlists', () => {
+		const source = '<script>drop</script><p onclick="x()">keep</p><a href="javascript:x">link</a>'
+		const policies = [
+			{
+				elements: Object.freeze(['p', 'script']),
+				attributes: Object.freeze(['onclick', 'href']),
+				schemes: Object.freeze(['javascript']),
+			},
+			{
+				elements: new Set(['p', 'script']),
+				attributes: new Set(['onclick', 'href']),
+				schemes: new Set(['javascript']),
+			},
+		]
+		for (const policy of policies) {
+			expect(renderHTML(new HTML(source).sanitize(policy).document)).toBe('<p>keep</p>link')
+		}
+	})
 	it('removes an unsafe subtree whole instead of unwrapping it', () => {
 		const page = new HTML('<div>before<script>alert(1)</script><style>b{}</style>after</div>')
 		expect(renderHTML(page.sanitize().document)).toBe('<div>beforeafter</div>')
@@ -652,6 +703,25 @@ describe('HTML - adversarial sanitizer corpus', () => {
 })
 
 describe('HTML - distill', () => {
+	it('accepts exported arrays and caller sets for both distill allowlists', () => {
+		expectTypeOf<DistillOptions['elements']>().toEqualTypeOf<
+			ReadonlySet<string> | readonly string[] | undefined
+		>()
+		expectTypeOf<DistillOptions['boilerplate']>().toEqualTypeOf<
+			ReadonlySet<string> | readonly string[] | undefined
+		>()
+		const source = '<nav>skip</nav><main><h1>Title</h1><p>Body</p></main>'
+		const arrays = new HTML(source).distill({
+			elements: CONTENT_ELEMENTS,
+			boilerplate: BOILERPLATE_ELEMENTS,
+		}).document
+		const sets = new HTML(source).distill({
+			elements: new Set(CONTENT_ELEMENTS),
+			boilerplate: new Set(BOILERPLATE_ELEMENTS),
+		}).document
+		expect(arrays).toEqual(sets)
+		expect(renderHTML(arrays)).toBe('<h1>Title</h1><p>Body</p>')
+	})
 	it('reduces a whole page to its article content', () => {
 		const page = new HTML(buildHTMLPageInput())
 		expect(renderHTML(page.distill().document)).toBe(

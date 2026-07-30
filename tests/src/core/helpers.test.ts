@@ -38,6 +38,7 @@ import {
 	buildHTMLRoundtripCorpus,
 	buildMarkdownPipelineInput,
 	buildMarkdownProjectionInputs,
+	buildSharedHTMLPreDocument,
 	hasAdjacentHTMLText,
 	parseMarkdownProjection,
 } from '../../setup.js'
@@ -421,12 +422,23 @@ describe('renderHTML', () => {
 		)
 	})
 
-	it('preserves parser-produced internal double hyphens and trailing dashes exactly', () => {
-		const sources = ['<!--a--b-->', '<!--a---->', '<!--one--two--three-->']
+	it('roundtrips every parser-produced representable comment without losing content', () => {
+		const sources = [
+			'<!-->x-->',
+			'<!--->x-->',
+			'<!--a--!>tail',
+			'<!--a--b-->',
+			'<!--a---->',
+			'<!--one--two--three-->',
+			'<!--open',
+		]
 		for (const source of sources) {
 			const document = parseDocument(source)
 			expect(parseDocument(renderHTML(document))).toEqual(document)
 		}
+		expect(renderText(parseDocument('<!-->x-->'))).toBe('x-->')
+		expect(renderText(parseDocument('<!--->x-->'))).toBe('x-->')
+		expect(renderText(parseDocument('<!--a--!>tail'))).toBe('tail')
 	})
 
 	it('drops hand-built comments containing a genuine close sequence instead of emitting markup', () => {
@@ -614,6 +626,41 @@ describe('renderMarkdown projection', () => {
 		}
 		expect(renderMarkdown(inline).length).toBeLessThanOrEqual(MAX_DEPTH * 4)
 		expect(renderMarkdown(fenced).length).toBeLessThanOrEqual(MAX_DEPTH * 8)
+	})
+
+	it('bounds branching cycles and diamonds through the pre fallback path', () => {
+		const branching = buildBranchingHTMLElement('pre')
+		const diamond = buildDiamondHTMLDocument(MAX_DEPTH).children[0]
+		const fallback: ElementNode = {
+			category: 'element',
+			name: 'pre',
+			attributes: [],
+			children: diamond === undefined ? [] : [diamond],
+		}
+		expect(renderMarkdown(branching).length).toBeLessThanOrEqual(MAX_DEPTH * 8)
+		expect(renderMarkdown(fallback).length).toBeLessThan(MAX_DEPTH * 16)
+	})
+
+	it('scales linearly when many pre fallbacks share one comment-heavy subtree', () => {
+		const small = buildSharedHTMLPreDocument(2_000)
+		const large = buildSharedHTMLPreDocument(4_000)
+		const smallStart = performance.now()
+		renderMarkdown(small)
+		const smallElapsed = performance.now() - smallStart
+		const largeStart = performance.now()
+		const markdown = renderMarkdown(large)
+		const largeElapsed = performance.now() - largeStart
+		expect(largeElapsed).toBeLessThan(smallElapsed * 3 + 100)
+		expect(largeElapsed).toBeLessThan(750)
+		expect(markdown.length).toBeLessThan(50_000)
+	})
+
+	it('preserves text projection semantics in a pre fallback without code', () => {
+		const document = parseDocument('<pre> a   <b>b</b>\n<div>c</div><script>drop</script> d </pre>')
+		const pre = document.children[0]
+		expect(pre?.category).toBe('element')
+		if (pre?.category !== 'element') return
+		expect(renderMarkdown(pre)).toBe(`\`\`\`\n${renderText(pre)}\n\`\`\``)
 	})
 
 	it('projects horizontal rules and GFM tables', () => {
@@ -1041,5 +1088,13 @@ describe('AST walkers', () => {
 		).toBeLessThanOrEqual(MAX_DEPTH * 3)
 		expect(() => rewriteDocument(document, (node) => node)).not.toThrow()
 		expect(() => pruneDocument(document, (node) => [node])).not.toThrow()
+	})
+
+	it('bounds every renderer on the shared pre-fallback graph', () => {
+		const count = 4_000
+		const document = buildSharedHTMLPreDocument(count)
+		expect(renderHTML(document).length).toBeLessThan(count * 50)
+		expect(renderText(document)).toBe('')
+		expect(renderMarkdown(document).length).toBeLessThan(50_000)
 	})
 })

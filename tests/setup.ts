@@ -213,6 +213,9 @@ export function buildHTMLRoundtripCorpus(): readonly HTMLDocument[] {
 		'<!--a--b-->',
 		'<!--a---->',
 		'<!--one--two--three-->',
+		'<!-->x-->',
+		'<!--->x-->',
+		'<!--a--!>tail',
 		'a<!--open',
 		'<div>kept<span',
 		buildDeepHTMLInput(MAX_DEPTH + 20, 'deep text'),
@@ -532,6 +535,55 @@ export function buildDiamondHTMLDocument(depth: number): HTMLDocument {
 		node = { category: 'element', name: 'span', attributes: [], children: [node, node] }
 	}
 	return { category: 'document', children: [node] }
+}
+
+/**
+ * Build many `pre` elements that share one comment-heavy non-code child.
+ *
+ * @param count - The number of `pre` elements and shared comments
+ * @returns A linear-size graph that exposes repeated nested fallback walks
+ */
+export function buildSharedHTMLPreDocument(count: number): HTMLDocument {
+	const comments: HTMLNode[] = []
+	for (let index = 0; index < count; index += 1) {
+		comments.push({ category: 'comment', value: `comment-${index}` })
+	}
+	const shared: ElementNode = {
+		category: 'element',
+		name: 'span',
+		attributes: [],
+		children: comments,
+	}
+	const children: HTMLNode[] = []
+	for (let index = 0; index < count; index += 1) {
+		children.push({ category: 'element', name: 'pre', attributes: [], children: [shared] })
+	}
+	return { category: 'document', children }
+}
+
+/**
+ * Build one start tag containing many duplicate empty quoted attributes.
+ *
+ * @param count - The number of attributes
+ * @returns A complete custom-element source
+ */
+export function buildHTMLAttributeInput(count: number): string {
+	return `<x ${'a="" '.repeat(count)}></x>`
+}
+
+/**
+ * Build a mixed parser-pressure source spanning attributes, raw elements, and close soup.
+ *
+ * @param count - The size of each adversarial family
+ * @returns One source whose total size grows linearly with count
+ */
+export function buildMixedHTMLInput(count: number): string {
+	return (
+		buildHTMLAttributeInput(count) +
+		'<script></script>'.repeat(count) +
+		'<x>'.repeat(count) +
+		'</y>'.repeat(count)
+	)
 }
 
 /**

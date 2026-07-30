@@ -189,14 +189,21 @@ export function scanTag(
 		}
 		if (character === '"' || character === "'") {
 			const quote = character
-			const close = html.indexOf(quote, index + 1)
-			const nested = html.indexOf('<', index + 1)
-			if (close >= 0 && (nested < 0 || close < nested)) {
-				index = close + 1
+			let recovery: number | undefined
+			index += 1
+			while (index < html.length && html[index] !== quote && html[index] !== '<') {
+				if (recovery === undefined && html[index] === '>') recovery = index
+				index += 1
+			}
+			if (html[index] === quote) {
+				index += 1
 				continue
 			}
-			const recovery = html.indexOf('>', index + 1)
-			if (recovery < 0) return undefined
+			if (recovery === undefined) {
+				while (index < html.length && html[index] !== '>') index += 1
+				if (html[index] === '>') recovery = index
+			}
+			if (recovery === undefined) return undefined
 			return {
 				name,
 				attributes: closing ? [] : scanAttributes(html.slice(attributesStart, recovery)),
@@ -221,17 +228,35 @@ export function scanComment(
 	offset: number,
 ): { readonly node: CommentNode; readonly next: number } | undefined {
 	if (html.startsWith('<!--', offset)) {
-		const end = html.indexOf('-->', offset + 4)
-		return end < 0
-			? { node: { category: 'comment', value: html.slice(offset + 4) }, next: html.length }
-			: {
-					node: { category: 'comment', value: html.slice(offset + 4, end) },
-					next: end + 3,
+		const start = offset + 4
+		if (html[start] === '>') {
+			return { node: { category: 'comment', value: '' }, next: start + 1 }
+		}
+		if (html[start] === '-' && html[start + 1] === '>') {
+			return { node: { category: 'comment', value: '' }, next: start + 2 }
+		}
+		let index = start
+		while (index < html.length) {
+			if (html.startsWith('-->', index)) {
+				return {
+					node: { category: 'comment', value: html.slice(start, index) },
+					next: index + 3,
 				}
+			}
+			if (html.startsWith('--!>', index)) {
+				return {
+					node: { category: 'comment', value: html.slice(start, index) },
+					next: index + 4,
+				}
+			}
+			index += 1
+		}
+		return { node: { category: 'comment', value: html.slice(start) }, next: html.length }
 	}
 	if (!html.startsWith('<!', offset) && !html.startsWith('<?', offset)) return undefined
-	const end = html.indexOf('>', offset + 2)
-	return end < 0
+	let end = offset + 2
+	while (end < html.length && html[end] !== '>') end += 1
+	return end >= html.length
 		? { node: { category: 'comment', value: html.slice(offset + 2) }, next: html.length }
 		: {
 				node: { category: 'comment', value: html.slice(offset + 2, end) },

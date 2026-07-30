@@ -65,9 +65,13 @@ export interface TextNode {
 
 /**
  * A comment - `<!-- … -->`. `value` is the comment's verbatim inner text, never decoded
- * and never parsed as markup. A bogus comment (`<?…>`, a non-doctype `<!…>`, or a CDATA
- * section) recovers to this same node, which is why the AST needs no processing
- * instruction or CDATA category of its own.
+ * and never parsed as markup. The parser constructs only representable values: they never
+ * begin with an abrupt `>` / `->` close and never contain `-->` / `--!>`, so rendering and
+ * reparsing a parser-produced comment preserves it exactly. A hand-built value can violate
+ * that invariant, in which case the renderer drops it rather than emit a breakout.
+ *
+ * A bogus comment (`<?…>`, a non-doctype `<!…>`, or a CDATA section) recovers to this same
+ * node, which is why the AST needs no processing instruction or CDATA category of its own.
  */
 export interface CommentNode {
 	readonly category: 'comment'
@@ -190,11 +194,11 @@ export type HTMLPruneHandler = (node: HTMLNode) => readonly HTMLNode[]
  */
 export interface SanitizeOptions {
 	/** The allowed element names, replacing the default safe element set. */
-	readonly elements?: ReadonlySet<string>
+	readonly elements?: ReadonlySet<string> | readonly string[]
 	/** The allowed attribute names, replacing the default safe attribute set. */
-	readonly attributes?: ReadonlySet<string>
+	readonly attributes?: ReadonlySet<string> | readonly string[]
 	/** The URL schemes allowed on a URL attribute, replacing the default safe scheme set. */
-	readonly schemes?: ReadonlySet<string>
+	readonly schemes?: ReadonlySet<string> | readonly string[]
 	/** Keep comment nodes instead of dropping them. */
 	readonly comments?: boolean
 }
@@ -223,9 +227,9 @@ export interface DistillOptions {
 	/** The URL that relative `href` / `src` values are resolved against. */
 	readonly base?: string
 	/** The element names kept as content, replacing the default content set. */
-	readonly elements?: ReadonlySet<string>
+	readonly elements?: ReadonlySet<string> | readonly string[]
 	/** The element names whose whole region is removed, replacing the default boilerplate set. */
-	readonly boilerplate?: ReadonlySet<string>
+	readonly boilerplate?: ReadonlySet<string> | readonly string[]
 }
 
 /**

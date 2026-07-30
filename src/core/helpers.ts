@@ -517,6 +517,7 @@ export function renderMarkdown(node: HTMLNode): string {
 		const values: {
 			readonly value: string
 			readonly text: string
+			readonly plain: string
 			readonly block: boolean
 			readonly list: boolean
 			readonly item: boolean
@@ -558,6 +559,21 @@ export function renderMarkdown(node: HTMLNode): string {
 				frame.count === 0 ? [] : values.splice(values.length - frame.count, frame.count)
 			let text = current.category === 'text' ? current.value : ''
 			for (const child of children) text += child.text
+			let plain = current.category === 'text' ? current.value.replace(/\s+/g, ' ') : ''
+			if (current.category === 'document') {
+				for (const child of children) plain += child.plain
+			} else if (
+				current.category === 'element' &&
+				!RAW_ELEMENTS.includes(current.name.toLowerCase())
+			) {
+				for (const child of children) plain += child.plain
+				if (
+					BLOCK_ELEMENTS.includes(current.name.toLowerCase()) ||
+					current.name.toLowerCase() === 'br'
+				) {
+					plain = `\n${plain}\n`
+				}
+			}
 			let result: {
 				readonly value: string
 				readonly block: boolean
@@ -663,7 +679,11 @@ export function renderMarkdown(node: HTMLNode): string {
 							}
 						}
 					} else {
-						body = renderText(current)
+						body = plain
+							.replace(/[ \t]*\n[ \t]*/g, '\n')
+							.replace(/\n+/g, '\n')
+							.replace(/ +/g, ' ')
+							.trim()
 					}
 					let longest = 0
 					let run = 0
@@ -835,7 +855,7 @@ export function renderMarkdown(node: HTMLNode): string {
 				}
 			}
 			if (stack.length === 0) return result.value.trim()
-			values.push({ ...result, text })
+			values.push({ ...result, text, plain })
 		}
 		return ''
 	} catch {

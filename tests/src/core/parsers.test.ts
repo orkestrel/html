@@ -9,10 +9,14 @@ import {
 	scanDoctype,
 	scanRawText,
 	scanTag,
+	walkNodes,
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import {
 	buildDeepHTMLInput,
+	buildHTMLAttributeInput,
+	buildHTMLRoundtripCorpus,
+	buildMixedHTMLInput,
 	extractHTMLText,
 	hasAdjacentHTMLText,
 	measureHTMLDepth,
@@ -68,6 +72,21 @@ describe('scanning pieces', () => {
 		expect(scanComment('<!--open', 0)).toEqual({
 			node: { category: 'comment', value: 'open' },
 			next: 8,
+		})
+	})
+
+	it('scanComment closes abrupt and incorrectly closed forms into representable tokens', () => {
+		expect(scanComment('<!-->x-->', 0)).toEqual({
+			node: { category: 'comment', value: '' },
+			next: 5,
+		})
+		expect(scanComment('<!--->x-->', 0)).toEqual({
+			node: { category: 'comment', value: '' },
+			next: 6,
+		})
+		expect(scanComment('<!--x--!>tail', 0)).toEqual({
+			node: { category: 'comment', value: 'x' },
+			next: 9,
 		})
 	})
 
@@ -371,6 +390,33 @@ describe('parseDocument hostile corpus totality', () => {
 		expect(isHTMLDocument(document)).toBe(true)
 	})
 
+	it('scales linearly through a start tag with many quoted attributes', () => {
+		const smallSource = buildHTMLAttributeInput(96_000)
+		const largeSource = buildHTMLAttributeInput(192_000)
+		const smallStart = performance.now()
+		parseDocument(smallSource)
+		const smallElapsed = performance.now() - smallStart
+		const largeStart = performance.now()
+		parseDocument(largeSource)
+		const largeElapsed = performance.now() - largeStart
+		expect(largeElapsed).toBeLessThan(smallElapsed * 3 + 100)
+		expect(largeElapsed).toBeLessThan(750)
+	})
+
+	it('scales linearly through mixed attribute, raw-element, and close-soup pressure', () => {
+		const smallSource = buildMixedHTMLInput(10_000)
+		const largeSource = buildMixedHTMLInput(20_000)
+		const smallStart = performance.now()
+		parseDocument(smallSource)
+		const smallElapsed = performance.now() - smallStart
+		const largeStart = performance.now()
+		const document = parseDocument(largeSource)
+		const largeElapsed = performance.now() - largeStart
+		expect(largeElapsed).toBeLessThan(smallElapsed * 3 + 100)
+		expect(largeElapsed).toBeLessThan(750)
+		expect(isHTMLDocument(document)).toBe(true)
+	})
+
 	const cases = [
 		'',
 		'<',
@@ -428,6 +474,23 @@ describe('parseDocument hostile corpus totality', () => {
 })
 
 describe('parseDocument parse and guard soundness', () => {
+	it('constructs only comments that its renderer can represent', () => {
+		const violations: string[] = []
+		for (const document of buildHTMLRoundtripCorpus()) {
+			for (const node of walkNodes(document)) {
+				if (
+					node.category === 'comment' &&
+					(node.value.startsWith('>') ||
+						node.value.startsWith('->') ||
+						node.value.includes('-->') ||
+						node.value.includes('--!>'))
+				)
+					violations.push(node.value)
+			}
+		}
+		expect(violations).toEqual([])
+	})
+
 	it('every representative parse result satisfies isHTMLDocument', () => {
 		const sources = [
 			'plain',
