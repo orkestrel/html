@@ -461,6 +461,21 @@ describe('HTML - sanitize floor', () => {
 		}
 	})
 
+	it('drops hand-built close-sequence comments through sanitize and preserves law three', () => {
+		const values = ['x--><script>alert(1)</script>', 'x--!><img src=x onerror=alert(1)>']
+		for (const value of values) {
+			const document: HTMLDocument = {
+				category: 'document',
+				children: [{ category: 'comment', value }],
+			}
+			const clean = new HTML(document).sanitize({ comments: true }).document
+			const rendered = renderHTML(clean)
+			const reparsed = parseDocument(rendered)
+			expect(reparsed.children.some((node) => node.category === 'element')).toBe(false)
+			expect(new HTML(reparsed).sanitize({ comments: true }).document).toEqual(clean)
+		}
+	})
+
 	it('keeps a doctype, which carries structure rather than risk', () => {
 		const page = new HTML('<!DOCTYPE html><p>a</p>')
 		expect(renderHTML(page.sanitize().document)).toBe('<!DOCTYPE html><p>a</p>')

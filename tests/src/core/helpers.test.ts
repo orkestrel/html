@@ -33,6 +33,8 @@ import {
 import { describe, expect, it } from 'vitest'
 import {
 	buildDeepHTMLDocument,
+	buildBranchingHTMLElement,
+	buildDiamondHTMLDocument,
 	buildHTMLRoundtripCorpus,
 	buildMarkdownPipelineInput,
 	buildMarkdownProjectionInputs,
@@ -419,6 +421,29 @@ describe('renderHTML', () => {
 		)
 	})
 
+	it('preserves parser-produced internal double hyphens and trailing dashes exactly', () => {
+		const sources = ['<!--a--b-->', '<!--a---->', '<!--one--two--three-->']
+		for (const source of sources) {
+			const document = parseDocument(source)
+			expect(parseDocument(renderHTML(document))).toEqual(document)
+		}
+	})
+
+	it('drops hand-built comments containing a genuine close sequence instead of emitting markup', () => {
+		const values = ['x--><script>alert(1)</script>', 'x--!><img src=x onerror=alert(1)>']
+		for (const value of values) {
+			const document: HTMLDocument = {
+				category: 'document',
+				children: [{ category: 'comment', value }],
+			}
+			const rendered = renderHTML(document)
+			expect(rendered).toBe('')
+			expect(parseDocument(rendered).children.some((node) => node.category === 'element')).toBe(
+				false,
+			)
+		}
+	})
+
 	it('preserves raw text verbatim and re-encodes literal text minimally', () => {
 		const document = parseDocument(
 			'<script>if (a < b) x &amp; y</script><title>&lt;x&gt; &amp;</title>',
@@ -577,6 +602,18 @@ describe('renderMarkdown projection', () => {
 		children.push(code)
 		const rendered = renderMarkdown(code)
 		expect(rendered.length).toBeLessThanOrEqual(MAX_DEPTH * 4)
+	})
+
+	it('bounds branching cycles in inline and fenced code without exponential frame growth', () => {
+		const inline = buildBranchingHTMLElement('code')
+		const fenced: ElementNode = {
+			category: 'element',
+			name: 'pre',
+			attributes: [],
+			children: [buildBranchingHTMLElement('code')],
+		}
+		expect(renderMarkdown(inline).length).toBeLessThanOrEqual(MAX_DEPTH * 4)
+		expect(renderMarkdown(fenced).length).toBeLessThanOrEqual(MAX_DEPTH * 8)
 	})
 
 	it('projects horizontal rules and GFM tables', () => {
@@ -967,14 +1004,7 @@ describe('AST walkers', () => {
 	})
 
 	it('keeps all iterative engines total on a cyclic adopted AST', () => {
-		const children: HTMLNode[] = []
-		const element: ElementNode = {
-			category: 'element',
-			name: 'div',
-			attributes: [],
-			children,
-		}
-		children.push(element)
+		const element = buildBranchingHTMLElement('div')
 		const document: HTMLDocument = { category: 'document', children: [element] }
 		expect(() => renderHTML(document)).not.toThrow()
 		expect(() => renderText(document)).not.toThrow()
@@ -990,5 +1020,26 @@ describe('AST walkers', () => {
 			}),
 		).not.toThrow()
 		expect(() => rewriteDocument(document, (node) => node)).not.toThrow()
+		expect(() => pruneDocument(document, (node) => [node])).not.toThrow()
+		expect([...walkNodes(document)].length).toBeLessThanOrEqual(3)
+	})
+
+	it('visits a shared diamond graph by node identity instead of by exponential path count', () => {
+		const document = buildDiamondHTMLDocument(MAX_DEPTH)
+		expect(renderHTML(document).length).toBeLessThan(MAX_DEPTH * 32)
+		expect(renderText(document).length).toBeLessThan(MAX_DEPTH * 8)
+		expect(renderMarkdown(document).length).toBeLessThan(MAX_DEPTH * 8)
+		expect([...walkNodes(document)].length).toBeLessThanOrEqual(MAX_DEPTH + 2)
+		expect(
+			foldNode(document, {
+				document: (_node, folded) => 1 + folded.reduce((sum, value) => sum + value, 0),
+				element: (_node, folded) => 1 + folded.reduce((sum, value) => sum + value, 0),
+				text: () => 1,
+				comment: () => 1,
+				doctype: () => 1,
+			}),
+		).toBeLessThanOrEqual(MAX_DEPTH * 3)
+		expect(() => rewriteDocument(document, (node) => node)).not.toThrow()
+		expect(() => pruneDocument(document, (node) => [node])).not.toThrow()
 	})
 })

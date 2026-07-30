@@ -20,6 +20,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	buildCyclicHTMLNode,
 	buildDeepHTMLNode,
+	buildDiamondHTMLDocument,
 	buildHostileHTMLNode,
 	buildHostileHTMLPrototype,
 	buildRevokedHTMLNode,
@@ -118,6 +119,10 @@ describe('recursive HTML guards', () => {
 		expect(isHTMLNode(cyclic)).toBe(false)
 		expect(() => isHTMLDocument(deep)).not.toThrow()
 		expect(isHTMLDocument(deep)).toBe(false)
+	})
+
+	it('validates a shared diamond graph once per node identity', () => {
+		expect(isHTMLDocument(buildDiamondHTMLDocument(MAX_DEPTH))).toBe(true)
 	})
 
 	it('returns false without throwing for hostile getters and revoked proxies', () => {

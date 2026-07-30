@@ -97,7 +97,10 @@ export function escapeMarkdown(value: string): string {
  * @param schemes - The allowed lowercase absolute schemes
  * @returns The decoded, control-free URL, or `''` when it is unsafe
  */
-export function sanitizeURL(value: string, schemes: ReadonlySet<string>): string {
+export function sanitizeURL(
+	value: string,
+	schemes: ReadonlySet<string> | readonly string[],
+): string {
 	try {
 		let decoded = value
 		let stable = false
@@ -125,12 +128,17 @@ export function sanitizeURL(value: string, schemes: ReadonlySet<string>): string
 		const match = /^([A-Za-z][A-Za-z0-9+.-]*):/.exec(cleaned)
 		if (match === null) return cleaned
 		const scheme = (match[1] ?? '').toLowerCase()
+		const has = Reflect.get(schemes, 'has')
+		const allowed =
+			typeof has === 'function'
+				? Reflect.apply(has, schemes, [scheme]) === true
+				: Reflect.apply(Array.prototype.includes, schemes, [scheme]) === true
 		if (
 			scheme === 'javascript' ||
 			scheme === 'data' ||
 			scheme === 'vbscript' ||
 			scheme === 'file' ||
-			!schemes.has(scheme)
+			!allowed
 		) {
 			return ''
 		}
@@ -197,12 +205,13 @@ export function attributeOf(node: ElementNode, name: string): string | undefined
  */
 export function sanitizeAttributes(
 	node: ElementNode,
-	attributes: ReadonlySet<string>,
-	schemes: ReadonlySet<string>,
+	attributes: ReadonlySet<string> | readonly string[],
+	schemes: ReadonlySet<string> | readonly string[],
 ): readonly HTMLAttribute[] {
 	try {
 		const kept: HTMLAttribute[] = []
 		const names = new Set<string>()
+		const has = Reflect.get(attributes, 'has')
 		for (const attribute of node.attributes) {
 			const name = attribute.name.toLowerCase()
 			if (names.has(name)) continue
@@ -214,7 +223,9 @@ export function sanitizeAttributes(
 				name === 'style' ||
 				name === 'srcdoc' ||
 				name === 'xmlns' ||
-				!attributes.has(name)
+				!(typeof has === 'function'
+					? Reflect.apply(has, attributes, [name]) === true
+					: Reflect.apply(Array.prototype.includes, attributes, [name]) === true)
 			) {
 				continue
 			}
@@ -289,16 +300,22 @@ export function renderHTML(node: HTMLNode): string {
 			readonly count: number
 		}[] = [{ node, depth: -1, expanded: false, count: 0 }]
 		const values: string[] = []
+		const visited = new WeakSet<object>()
 		while (stack.length > 0) {
 			const frame = stack.pop()
 			if (frame === undefined) continue
 			const current = frame.node
 			if (!frame.expanded) {
+				if (visited.has(current)) {
+					stack.push({ ...frame, expanded: true, count: 0 })
+					continue
+				}
+				visited.add(current)
 				const children: HTMLNode[] = []
 				if (
 					frame.depth < MAX_DEPTH &&
 					(current.category === 'document' ||
-						(current.category === 'element' && !RAW_ELEMENTS.has(current.name.toLowerCase())))
+						(current.category === 'element' && !RAW_ELEMENTS.includes(current.name.toLowerCase())))
 				) {
 					for (const child of current.children) if (child !== undefined) children.push(child)
 				}
@@ -323,11 +340,15 @@ export function renderHTML(node: HTMLNode): string {
 					value = encodeText(current.value)
 					break
 				case 'comment':
-					value = current.value.replaceAll('--', '-&#45;')
-					if (value.startsWith('>')) value = `&gt;${value.slice(1)}`
-					if (value.startsWith('->')) value = `&#45;${value.slice(1)}`
-					if (value.endsWith('-')) value = `${value.slice(0, -1)}&#45;`
-					value = `<!--${value}-->`
+					if (
+						current.value.includes('-->') ||
+						current.value.includes('--!>') ||
+						current.value.startsWith('>') ||
+						current.value.startsWith('->')
+					) {
+						break
+					}
+					value = `<!--${current.value}-->`
 					break
 				case 'doctype': {
 					const name = current.name.toLowerCase()
@@ -370,11 +391,11 @@ export function renderHTML(node: HTMLNode): string {
 								? ` ${attributeName}`
 								: ` ${attributeName}="${encodeAttribute(attribute.value)}"`
 					}
-					if (VOID_ELEMENTS.has(name)) {
+					if (VOID_ELEMENTS.includes(name)) {
 						value = `<${name}${attributes}>`
 						break
 					}
-					if (RAW_ELEMENTS.has(name)) {
+					if (RAW_ELEMENTS.includes(name)) {
 						let body = ''
 						for (const child of current.children) {
 							if (child.category === 'text') body += child.value
@@ -427,6 +448,7 @@ export function renderText(node: HTMLNode): string {
 			readonly leaving: boolean
 		}[] = [{ node, depth: -1, leaving: false }]
 		let value = ''
+		const visited = new WeakSet<object>()
 		while (stack.length > 0) {
 			const frame = stack.pop()
 			if (frame === undefined) continue
@@ -434,23 +456,26 @@ export function renderText(node: HTMLNode): string {
 			if (frame.leaving) {
 				if (
 					current.category === 'element' &&
-					(BLOCK_ELEMENTS.has(current.name.toLowerCase()) || current.name.toLowerCase() === 'br')
+					(BLOCK_ELEMENTS.includes(current.name.toLowerCase()) ||
+						current.name.toLowerCase() === 'br')
 				) {
 					value += '\n'
 				}
 				continue
 			}
+			if (visited.has(current)) continue
+			visited.add(current)
 			if (current.category === 'text') {
 				value += current.value.replace(/\s+/g, ' ')
 				continue
 			}
 			if (current.category !== 'document' && current.category !== 'element') continue
-			if (current.category === 'element' && RAW_ELEMENTS.has(current.name.toLowerCase())) {
+			if (current.category === 'element' && RAW_ELEMENTS.includes(current.name.toLowerCase())) {
 				continue
 			}
 			const boundary =
 				current.category === 'element' &&
-				(BLOCK_ELEMENTS.has(current.name.toLowerCase()) || current.name.toLowerCase() === 'br')
+				(BLOCK_ELEMENTS.includes(current.name.toLowerCase()) || current.name.toLowerCase() === 'br')
 			if (boundary) value += '\n'
 			if (frame.depth >= MAX_DEPTH) continue
 			stack.push({ node: current, depth: frame.depth, leaving: true })
@@ -501,11 +526,17 @@ export function renderMarkdown(node: HTMLNode): string {
 				readonly header: boolean
 			}[]
 		}[] = []
+		const visited = new WeakSet<object>()
 		while (stack.length > 0) {
 			const frame = stack.pop()
 			if (frame === undefined) continue
 			const current = frame.node
 			if (!frame.expanded) {
+				if (visited.has(current)) {
+					stack.push({ ...frame, expanded: true, count: 0 })
+					continue
+				}
+				visited.add(current)
 				const children: HTMLNode[] = []
 				if (
 					frame.depth < MAX_DEPTH &&
@@ -821,9 +852,12 @@ export function renderMarkdown(node: HTMLNode): string {
 export function* walkNodes(node: HTMLNode): Generator<HTMLNode> {
 	try {
 		const stack: { readonly node: HTMLNode; readonly depth: number }[] = [{ node, depth: -1 }]
+		const visited = new WeakSet<object>()
 		while (stack.length > 0) {
 			const frame = stack.pop()
 			if (frame === undefined) continue
+			if (visited.has(frame.node)) continue
+			visited.add(frame.node)
 			yield frame.node
 			if (
 				frame.depth >= MAX_DEPTH ||
@@ -860,10 +894,16 @@ export function foldNode<T>(node: HTMLNode, handlers: HTMLHandlers<T>): T {
 		readonly count: number
 	}[] = [{ node, depth: -1, expanded: false, count: 0 }]
 	const values: T[] = []
+	const visited = new WeakSet<object>()
 	while (stack.length > 0) {
 		const frame = stack.pop()
 		if (frame === undefined) continue
 		if (!frame.expanded) {
+			if (visited.has(frame.node)) {
+				stack.push({ ...frame, expanded: true, count: 0 })
+				continue
+			}
+			visited.add(frame.node)
 			const children: HTMLNode[] = []
 			if (
 				frame.depth < MAX_DEPTH &&
@@ -939,11 +979,17 @@ export function rewriteDocument(document: HTMLDocument, rewrite: HTMLRewriteHand
 			readonly count: number
 		}[] = [{ node: document, depth: -1, expanded: false, count: 0 }]
 		const values: HTMLNode[] = []
+		const visited = new WeakSet<object>()
 		while (stack.length > 0) {
 			const frame = stack.pop()
 			if (frame === undefined) continue
 			const current = frame.node
 			if (!frame.expanded) {
+				if (visited.has(current)) {
+					stack.push({ ...frame, expanded: true, count: 0 })
+					continue
+				}
+				visited.add(current)
 				if (current.category !== 'document' && frame.depth >= MAX_DEPTH) {
 					values.push(current)
 					continue
@@ -1130,11 +1176,17 @@ export function pruneDocument(document: HTMLDocument, prune: HTMLPruneHandler): 
 			readonly count: number
 		}[] = [{ node: document, depth: -1, expanded: false, count: 0 }]
 		const results: Array<readonly HTMLNode[]> = []
+		const visited = new WeakSet<object>()
 		while (stack.length > 0) {
 			const frame = stack.pop()
 			if (frame === undefined) continue
 			const current = frame.node
 			if (!frame.expanded) {
+				if (visited.has(current)) {
+					stack.push({ ...frame, expanded: true, count: 0 })
+					continue
+				}
+				visited.add(current)
 				const children: HTMLNode[] = []
 				if (
 					frame.depth < MAX_DEPTH &&

@@ -1,4 +1,4 @@
-import type { HTMLDocument, HTMLNode } from '@src/core'
+import type { ElementNode, HTMLDocument, HTMLNode } from '@src/core'
 import type { MarkdownDocument } from '@orkestrel/markdown'
 import { MAX_DEPTH, parseDocument, renderMarkdown } from '@src/core'
 import { parseDocument as parseMarkdown } from '@orkestrel/markdown'
@@ -210,6 +210,9 @@ export function buildHTMLRoundtripCorpus(): readonly HTMLDocument[] {
 		'<div disabled title="oops><p>safe</p>',
 		'1 < 2 <<x',
 		'<?work?><!ENTITY x><![CDATA[a<b]]>',
+		'<!--a--b-->',
+		'<!--a---->',
+		'<!--one--two--three-->',
 		'a<!--open',
 		'<div>kept<span',
 		buildDeepHTMLInput(MAX_DEPTH + 20, 'deep text'),
@@ -500,6 +503,33 @@ export function buildDeepHTMLDocument(depth: number): HTMLDocument {
 	let node: HTMLNode = { category: 'text', value: 'leaf' }
 	for (let index = 0; index < depth; index += 1) {
 		node = { category: 'element', name: 'div', attributes: [], children: [node] }
+	}
+	return { category: 'document', children: [node] }
+}
+
+/**
+ * Build an element whose two child references both point back to the element.
+ *
+ * @param name - The element name
+ * @returns A branching cyclic element graph
+ */
+export function buildBranchingHTMLElement(name: string): ElementNode {
+	const children: HTMLNode[] = []
+	const element: ElementNode = { category: 'element', name, attributes: [], children }
+	children.push(element, element)
+	return element
+}
+
+/**
+ * Build an acyclic diamond graph with two references to the preceding node at each level.
+ *
+ * @param depth - The number of shared element layers
+ * @returns A document whose path count is exponential but whose node count is linear
+ */
+export function buildDiamondHTMLDocument(depth: number): HTMLDocument {
+	let node: HTMLNode = { category: 'text', value: 'leaf' }
+	for (let index = 0; index < depth; index += 1) {
+		node = { category: 'element', name: 'span', attributes: [], children: [node, node] }
 	}
 	return { category: 'document', children: [node] }
 }

@@ -84,6 +84,7 @@ export const isDoctypeNode: Guard<DoctypeNode> = recordOf(
 export function isHTMLNode(value: unknown): value is HTMLNode {
 	const outcome = attempt(() => {
 		const ancestors = new WeakSet<object>()
+		const visited = new WeakSet<object>()
 		const pending: {
 			readonly value: unknown
 			readonly depth: number
@@ -118,6 +119,8 @@ export function isHTMLNode(value: unknown): value is HTMLNode {
 			) {
 				return false
 			}
+			if (visited.has(entry.value)) continue
+			visited.add(entry.value)
 			if (entry.value.category === 'document') {
 				if (Object.keys(entry.value).length !== 2 || !isArray(entry.value.children)) return false
 			} else if (
@@ -171,7 +174,7 @@ export function isElementNode(value: unknown): value is ElementNode {
  * @returns `true` when the canonical element set declares the name void
  */
 export function isVoidElement(name: string): boolean {
-	return VOID_ELEMENTS.has(name.toLowerCase())
+	return VOID_ELEMENTS.includes(name.toLowerCase())
 }
 
 /**
@@ -181,7 +184,7 @@ export function isVoidElement(name: string): boolean {
  * @returns `true` for `script` and `style`
  */
 export function isRawElement(name: string): boolean {
-	return RAW_ELEMENTS.has(name.toLowerCase())
+	return RAW_ELEMENTS.includes(name.toLowerCase())
 }
 
 /**
@@ -191,7 +194,7 @@ export function isRawElement(name: string): boolean {
  * @returns `true` for `title` and `textarea`
  */
 export function isLiteralElement(name: string): boolean {
-	return LITERAL_ELEMENTS.has(name.toLowerCase())
+	return LITERAL_ELEMENTS.includes(name.toLowerCase())
 }
 
 /**
@@ -201,7 +204,7 @@ export function isLiteralElement(name: string): boolean {
  * @returns `true` when the canonical block set contains the name
  */
 export function isBlockElement(name: string): boolean {
-	return BLOCK_ELEMENTS.has(name.toLowerCase())
+	return BLOCK_ELEMENTS.includes(name.toLowerCase())
 }
 
 /**
@@ -211,7 +214,10 @@ export function isBlockElement(name: string): boolean {
  * @param schemes - The allowed absolute schemes
  * @returns `true` when the URL passes the sanitizer's protocol floor
  */
-export function isSafeURL(value: string, schemes: ReadonlySet<string> = SAFE_URL_SCHEMES): boolean {
+export function isSafeURL(
+	value: string,
+	schemes: ReadonlySet<string> | readonly string[] = SAFE_URL_SCHEMES,
+): boolean {
 	return sanitizeURL(value, schemes) !== ''
 }
 

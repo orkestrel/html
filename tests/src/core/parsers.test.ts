@@ -344,6 +344,33 @@ describe('parseDocument hostile corpus totality', () => {
 		expect(elapsed).toBeLessThan(750)
 	})
 
+	it('scales linearly through close soup after the depth overflow boundary', () => {
+		const smallSource = `${'<x>'.repeat(12_000)}${'</y>'.repeat(12_000)}`
+		const largeSource = `${'<x>'.repeat(24_000)}${'</y>'.repeat(24_000)}`
+		const smallStart = performance.now()
+		parseDocument(smallSource)
+		const smallElapsed = performance.now() - smallStart
+		const largeStart = performance.now()
+		parseDocument(largeSource)
+		const largeElapsed = performance.now() - largeStart
+		expect(largeElapsed).toBeLessThan(smallElapsed * 3 + 30)
+		expect(largeElapsed).toBeLessThan(600)
+	})
+
+	it('keeps unmatched close lookup linear with a full open-element stack', () => {
+		const smallSource = `${'<x>'.repeat(MAX_DEPTH)}${'</y>'.repeat(50_000)}`
+		const largeSource = `${'<x>'.repeat(MAX_DEPTH)}${'</y>'.repeat(100_000)}`
+		const smallStart = performance.now()
+		parseDocument(smallSource)
+		const smallElapsed = performance.now() - smallStart
+		const largeStart = performance.now()
+		const document = parseDocument(largeSource)
+		const largeElapsed = performance.now() - largeStart
+		expect(largeElapsed).toBeLessThan(smallElapsed * 3 + 50)
+		expect(largeElapsed).toBeLessThan(750)
+		expect(isHTMLDocument(document)).toBe(true)
+	})
+
 	const cases = [
 		'',
 		'<',

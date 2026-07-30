@@ -65,7 +65,8 @@ export function decodeEntities(value: string): string {
 		const name = index
 		while (index < value.length && /[A-Za-z0-9]/.test(value[index] ?? '')) index += 1
 		if (index > name && value[index] === ';') {
-			const entity = NAMED_ENTITIES.get(value.slice(name, index))
+			const key = value.slice(name, index)
+			const entity = Object.hasOwn(NAMED_ENTITIES, key) ? NAMED_ENTITIES[key] : undefined
 			if (entity !== undefined) {
 				decoded += entity
 				index += 1
@@ -373,7 +374,9 @@ export function parseDocument(html: string): HTMLDocument {
 	const children: HTMLNode[] = []
 	const siblingLists: HTMLNode[][] = [children]
 	const stack: { readonly name: string; readonly children: HTMLNode[] }[] = [{ name: '', children }]
+	const stackPositions = new Map<string, number[]>()
 	const overflow: string[] = []
+	const overflowPositions = new Map<string, number[]>()
 	let index = 0
 	while (index < source.length) {
 		const parent = stack[stack.length - 1]
@@ -429,50 +432,63 @@ export function parseDocument(html: string): HTMLDocument {
 			continue
 		}
 		index = tag.next
+		let stackTarget = stack.length
+		let overflowTarget = overflow.length
 		if (tag.closing) {
-			if (VOID_ELEMENTS.has(tag.name)) continue
-			let overflowMatch = -1
-			for (let cursor = overflow.length - 1; cursor >= 0; cursor -= 1) {
-				if (overflow[cursor] === tag.name) {
-					overflowMatch = cursor
-					break
+			if (VOID_ELEMENTS.includes(tag.name)) continue
+			const overflowMatches = overflowPositions.get(tag.name)
+			const overflowMatch = overflowMatches?.[overflowMatches.length - 1]
+			if (overflowMatch !== undefined) {
+				overflowTarget = overflowMatch
+			} else {
+				const stackMatches = stackPositions.get(tag.name)
+				const stackMatch = stackMatches?.[stackMatches.length - 1]
+				if (stackMatch !== undefined) {
+					overflowTarget = 0
+					stackTarget = stackMatch
 				}
 			}
-			if (overflowMatch >= 0) {
-				overflow.length = overflowMatch
-				continue
+		} else {
+			while (overflowTarget > 0) {
+				const open = overflow[overflowTarget - 1]
+				const closers =
+					open !== undefined && Object.hasOwn(IMPLIED_CLOSERS, open)
+						? IMPLIED_CLOSERS[open]
+						: undefined
+				if (closers === undefined || !closers.includes(tag.name)) break
+				overflowTarget -= 1
 			}
-			let stackMatch = -1
-			for (let cursor = stack.length - 1; cursor >= 1; cursor -= 1) {
-				if (stack[cursor]?.name === tag.name) {
-					stackMatch = cursor
-					break
+			if (overflowTarget === 0) {
+				while (stackTarget > 1) {
+					const open = stack[stackTarget - 1]?.name
+					const closers =
+						open !== undefined && Object.hasOwn(IMPLIED_CLOSERS, open)
+							? IMPLIED_CLOSERS[open]
+							: undefined
+					if (closers === undefined || !closers.includes(tag.name)) break
+					stackTarget -= 1
 				}
 			}
-			if (stackMatch >= 1) {
-				overflow.length = 0
-				stack.length = stackMatch
-			}
-			continue
 		}
-		while (overflow.length > 0) {
-			const open = overflow[overflow.length - 1]
-			const closers = open === undefined ? undefined : IMPLIED_CLOSERS.get(open)
-			if (closers === undefined || !closers.has(tag.name)) break
-			overflow.pop()
+		while (overflow.length > overflowTarget) {
+			const removed = overflow.pop()
+			if (removed === undefined) continue
+			const positions = overflowPositions.get(removed)
+			positions?.pop()
+			if (positions?.length === 0) overflowPositions.delete(removed)
 		}
-		if (overflow.length === 0) {
-			while (stack.length > 1) {
-				const open = stack[stack.length - 1]?.name
-				const closers = open === undefined ? undefined : IMPLIED_CLOSERS.get(open)
-				if (closers === undefined || !closers.has(tag.name)) break
-				stack.pop()
-			}
+		while (stack.length > stackTarget) {
+			const removed = stack.pop()
+			if (removed === undefined) continue
+			const positions = stackPositions.get(removed.name)
+			positions?.pop()
+			if (positions?.length === 0) stackPositions.delete(removed.name)
 		}
+		if (tag.closing) continue
 		const current = stack[stack.length - 1]
 		if (current === undefined) break
-		if (RAW_ELEMENTS.has(tag.name) || LITERAL_ELEMENTS.has(tag.name)) {
-			const raw = scanRawText(source, index, tag.name, LITERAL_ELEMENTS.has(tag.name))
+		if (RAW_ELEMENTS.includes(tag.name) || LITERAL_ELEMENTS.includes(tag.name)) {
+			const raw = scanRawText(source, index, tag.name, LITERAL_ELEMENTS.includes(tag.name))
 			if (stack.length <= MAX_DEPTH) {
 				const element: ElementNode = {
 					category: 'element',
@@ -487,7 +503,7 @@ export function parseDocument(html: string): HTMLDocument {
 			index = raw.next
 			continue
 		}
-		if (VOID_ELEMENTS.has(tag.name)) {
+		if (VOID_ELEMENTS.includes(tag.name)) {
 			if (stack.length <= MAX_DEPTH) {
 				current.children.push({
 					category: 'element',
@@ -499,6 +515,12 @@ export function parseDocument(html: string): HTMLDocument {
 			continue
 		}
 		if (stack.length > MAX_DEPTH) {
+			const positions = overflowPositions.get(tag.name)
+			if (positions === undefined) {
+				overflowPositions.set(tag.name, [overflow.length])
+			} else {
+				positions.push(overflow.length)
+			}
 			overflow.push(tag.name)
 			continue
 		}
@@ -511,6 +533,12 @@ export function parseDocument(html: string): HTMLDocument {
 		}
 		current.children.push(element)
 		siblingLists.push(elementChildren)
+		const positions = stackPositions.get(tag.name)
+		if (positions === undefined) {
+			stackPositions.set(tag.name, [stack.length])
+		} else {
+			positions.push(stack.length)
+		}
 		stack.push({ name: tag.name, children: elementChildren })
 	}
 	for (const siblings of siblingLists) {

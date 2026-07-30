@@ -209,9 +209,9 @@ export class HTML implements HTMLInterface {
 	 * ```
 	 */
 	sanitize(options?: SanitizeOptions): HTMLInterface {
-		const elements = options?.elements ?? SAFE_ELEMENTS
-		const attributes = options?.attributes ?? SAFE_ATTRIBUTES
-		const schemes = options?.schemes ?? SAFE_URL_SCHEMES
+		const elements = options?.elements ?? new Set(SAFE_ELEMENTS)
+		const attributes = options?.attributes ?? new Set(SAFE_ATTRIBUTES)
+		const schemes = options?.schemes ?? new Set(SAFE_URL_SCHEMES)
 		const comments = options?.comments ?? false
 		return new HTML(
 			pruneDocument(this.#document, (node) =>
@@ -250,8 +250,8 @@ export class HTML implements HTMLInterface {
 	 * ```
 	 */
 	distill(options?: DistillOptions): HTMLInterface {
-		const boilerplate = options?.boilerplate ?? BOILERPLATE_ELEMENTS
-		const elements = options?.elements ?? CONTENT_ELEMENTS
+		const boilerplate = options?.boilerplate ?? new Set(BOILERPLATE_ELEMENTS)
+		const elements = options?.elements ?? new Set(CONTENT_ELEMENTS)
 		const base = options?.base
 		const visible = pruneDocument(this.#document, (node) => this.#pruneRegion(node, boilerplate))
 		const rooted = extractRegion(new HTML(visible).sanitize().document, REGION_ELEMENTS)
@@ -284,7 +284,7 @@ export class HTML implements HTMLInterface {
 				category: 'element',
 				name,
 				attributes: sanitizeAttributes(node, options.attributes, options.schemes),
-				children: VOID_ELEMENTS.has(name) ? [] : mergeText(node.children),
+				children: VOID_ELEMENTS.includes(name) ? [] : mergeText(node.children),
 			},
 		]
 	}
@@ -327,7 +327,7 @@ export class HTML implements HTMLInterface {
 		const merged = mergeText(node.children)
 		const literal = name === 'pre' || name === 'code'
 		const content = literal ? merged : collapseText(merged)
-		const childless = VOID_ELEMENTS.has(name)
+		const childless = VOID_ELEMENTS.includes(name)
 		const kept: ElementNode = {
 			category: 'element',
 			name,
