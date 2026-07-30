@@ -10,22 +10,22 @@ HTML here is: parse once into an `HTML` handle, then treat every output as a pro
 
 The full node shape and handle contract, from [`types.ts`](../../src/core/types.ts). `category` is the discriminant every node carries; absence is always `undefined`, never a sentinel.
 
-| Name                 | Kind      | Shape                                                                                                                                                                                                         |
-| -------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `HTMLAttribute`      | interface | `{ name: string, value?: string }` — one attribute; `name` is ASCII-lowercased, `value` is ABSENT for `<input disabled>` and `''` for `<input disabled="">`.                                                  |
-| `ElementNode`        | interface | `{ category: 'element', name, attributes, children }` — any tag, known or custom; `attributes` in source order, `children` empty for a void element.                                                          |
-| `TextNode`           | interface | `{ category: 'text', value: string }` — a run of character data; `value` is DECODED (references resolved, not yet re-encoded).                                                                                |
-| `CommentNode`        | interface | `{ category: 'comment', value: string }` — `<!-- … -->`; `value` is verbatim, never decoded and never parsed as markup.                                                                                       |
-| `DoctypeNode`        | interface | `{ category: 'doctype', name, public?, system? }` — the declared root name plus the external identifiers of a legacy declaration.                                                                             |
-| `HTMLDocument`       | interface | `{ category: 'document', children: readonly HTMLNode[] }` — the single root, whether the input was a page or a fragment.                                                                                      |
-| `HTMLNode`           | type      | `HTMLDocument \| ElementNode \| TextNode \| CommentNode \| DoctypeNode` — the exhaustive set every guard, traversal, fold table, and renderer covers.                                                         |
-| `HTMLHandler`        | type      | `(node: TNode, children: readonly T[]) => T` — one fold step, receiving its children ALREADY folded to `T`.                                                                                                   |
-| `HTMLHandlers`       | interface | One `HTMLHandler` per category (`document`, `element`, `text`, `comment`, `doctype`) — every key required, because a fold is total.                                                                           |
-| `HTMLRewriteHandler` | type      | `(node: HTMLNode) => HTMLNode` — a bottom-up, copy-on-write one-to-one node rewrite for `map`.                                                                                                                |
-| `HTMLPruneHandler`   | type      | `(node: HTMLNode) => readonly HTMLNode[]` — the one-to-MANY dual of a rewrite: `[]` drops, `node.children` unwraps, `[node]` keeps.                                                                           |
-| `SanitizeOptions`    | interface | `{ elements?, attributes?, schemes?, comments? }` — each allowlist REPLACES its default; the floor sits underneath and cannot be lowered (§ [The sanitize floor](#the-sanitize-floor)).                       |
-| `DistillOptions`     | interface | `{ base?, elements?, boilerplate? }` — the URL relative values resolve against, the content set kept, and the regions removed whole (§ [The distill pass](#the-distill-pass)).                                |
-| `HTMLInterface`      | interface | `{ document, walk, find, filter, map, reduce, fold, stream, sanitize, distill }` — the AST root plus every operation over it; `document` is a readonly data member, the rest are in [`## Methods`](#methods). |
+| Name                 | Kind      | Shape                                                                                                                                                                                                                                           |
+| -------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HTMLAttribute`      | interface | `{ name: string, value?: string }` — one attribute; `name` is ASCII-lowercased, `value` is ABSENT for `<input disabled>` and `''` for `<input disabled="">`.                                                                                    |
+| `ElementNode`        | interface | `{ category: 'element', name, attributes, children }` — any tag, known or custom; `attributes` in source order, `children` empty for a void element.                                                                                            |
+| `TextNode`           | interface | `{ category: 'text', value: string }` — a run of character data; `value` is DECODED (references resolved, not yet re-encoded).                                                                                                                  |
+| `CommentNode`        | interface | `{ category: 'comment', value: string }` — `<!-- … -->`; `value` is verbatim, never decoded and never parsed as markup, and a parser-produced one is always REPRESENTABLE (§ [The AST model](#the-ast-model)).                                  |
+| `DoctypeNode`        | interface | `{ category: 'doctype', name, public?, system? }` — the declared root name plus the external identifiers of a legacy declaration.                                                                                                               |
+| `HTMLDocument`       | interface | `{ category: 'document', children: readonly HTMLNode[] }` — the single root, whether the input was a page or a fragment.                                                                                                                        |
+| `HTMLNode`           | type      | `HTMLDocument \| ElementNode \| TextNode \| CommentNode \| DoctypeNode` — the exhaustive set every guard, traversal, fold table, and renderer covers.                                                                                           |
+| `HTMLHandler`        | type      | `(node: TNode, children: readonly T[]) => T` — one fold step, receiving its children ALREADY folded to `T`.                                                                                                                                     |
+| `HTMLHandlers`       | interface | One `HTMLHandler` per category (`document`, `element`, `text`, `comment`, `doctype`) — every key required, because a fold is total.                                                                                                             |
+| `HTMLRewriteHandler` | type      | `(node: HTMLNode) => HTMLNode` — a bottom-up, copy-on-write one-to-one node rewrite for `map`.                                                                                                                                                  |
+| `HTMLPruneHandler`   | type      | `(node: HTMLNode) => readonly HTMLNode[]` — the one-to-MANY dual of a rewrite: `[]` drops, `node.children` unwraps, `[node]` keeps.                                                                                                             |
+| `SanitizeOptions`    | interface | `{ elements?, attributes?, schemes?, comments? }` — each allowlist is a `ReadonlySet<string>` or a `readonly string[]` and REPLACES its default; the floor sits underneath and cannot be lowered (§ [The sanitize floor](#the-sanitize-floor)). |
+| `DistillOptions`     | interface | `{ base?, elements?, boilerplate? }` — the URL relative values resolve against, plus the content set kept and the regions removed whole, each a `ReadonlySet<string>` or a `readonly string[]` (§ [The distill pass](#the-distill-pass)).       |
+| `HTMLInterface`      | interface | `{ document, walk, find, filter, map, reduce, fold, stream, sanitize, distill }` — the AST root plus every operation over it; `document` is a readonly data member, the rest are in [`## Methods`](#methods).                                   |
 
 ### Constants
 
@@ -73,15 +73,15 @@ Two guard families, from [`validators.ts`](../../src/core/validators.ts). The fr
 
 The tokenizer and its exported scanning pieces, from [`parsers.ts`](../../src/core/parsers.ts). `parseDocument` is the spine; every piece it composes is exported and independently testable, because a scanner nobody can call is a scanner nobody can prove. All of them are index-based, with no backtracking regex over untrusted input.
 
-| Name             | Kind     | Signature                                                                                                               | Behavior                                                                                                                                                                                              |
-| ---------------- | -------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `decodeEntities` | function | `(value: string) => string`                                                                                             | Decodes numeric references (invalid scalar → `U+FFFD`) and `NAMED_ENTITIES`; an unknown named reference stays literal, exactly as written.                                                            |
-| `scanAttributes` | function | `(source: string) => readonly HTMLAttribute[]`                                                                          | Scans a start tag's attribute segment into ordered, ASCII-lowercased, first-wins attributes with decoded values; an unterminated quoted value minimizes to an ABSENT value.                           |
-| `scanTag`        | function | `(html: string, offset: number) => { name, attributes, closing, next } \| undefined`                                    | Scans one complete start or close tag; `undefined` for an invalid or incomplete tag. A trailing `/` is dropped, and an unterminated quote recovers at the next `>` instead of trusting later markup.  |
-| `scanComment`    | function | `(html: string, offset: number) => { node: CommentNode, next: number } \| undefined`                                    | Scans `<!-- … -->` and the bogus-comment forms (`<?…>`, a non-doctype `<!…>`, a CDATA section); an unterminated comment runs to the end of input.                                                     |
-| `scanDoctype`    | function | `(html: string, offset: number) => { node: DoctypeNode, next: number } \| undefined`                                    | Scans `<!DOCTYPE …>` including the legacy `PUBLIC` / `SYSTEM` identifier forms; `undefined` for a non-doctype or an unterminated declaration.                                                         |
-| `scanRawText`    | function | `(html: string, offset: number, name: string, entities?: boolean) => { node: TextNode, next: number, closed: boolean }` | Scans to the case-insensitive matching close tag of a raw or literal element, optionally decoding references; reports whether a complete close was found.                                             |
-| `parseDocument`  | function | `(html: string) => HTMLDocument`                                                                                        | Parses a page or fragment into an `HTMLDocument`. TOTAL — malformed markup recovers per the [recovery table](#the-parse-pipeline) instead of throwing — and guarantees no two adjacent text siblings. |
+| Name             | Kind     | Signature                                                                                                               | Behavior                                                                                                                                                                                                                          |
+| ---------------- | -------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `decodeEntities` | function | `(value: string) => string`                                                                                             | Decodes numeric references (invalid scalar → `U+FFFD`) and `NAMED_ENTITIES`; an unknown named reference stays literal, exactly as written.                                                                                        |
+| `scanAttributes` | function | `(source: string) => readonly HTMLAttribute[]`                                                                          | Scans a start tag's attribute segment into ordered, ASCII-lowercased, first-wins attributes with decoded values; an unterminated quoted value minimizes to an ABSENT value.                                                       |
+| `scanTag`        | function | `(html: string, offset: number) => { name, attributes, closing, next } \| undefined`                                    | Scans one complete start or close tag; `undefined` for an invalid or incomplete tag. A trailing `/` is dropped, and an unterminated quote recovers at the next `>` instead of trusting later markup.                              |
+| `scanComment`    | function | `(html: string, offset: number) => { node: CommentNode, next: number } \| undefined`                                    | Scans `<!-- … -->` and the bogus-comment forms (`<?…>`, a non-doctype `<!…>`, a CDATA section); an unterminated comment runs to the end of input and every value it returns is REPRESENTABLE (§ [The AST model](#the-ast-model)). |
+| `scanDoctype`    | function | `(html: string, offset: number) => { node: DoctypeNode, next: number } \| undefined`                                    | Scans `<!DOCTYPE …>` including the legacy `PUBLIC` / `SYSTEM` identifier forms; `undefined` for a non-doctype or an unterminated declaration.                                                                                     |
+| `scanRawText`    | function | `(html: string, offset: number, name: string, entities?: boolean) => { node: TextNode, next: number, closed: boolean }` | Scans to the case-insensitive matching close tag of a raw or literal element, optionally decoding references; reports whether a complete close was found.                                                                         |
+| `parseDocument`  | function | `(html: string) => HTMLDocument`                                                                                        | Parses a page or fragment into an `HTMLDocument`. TOTAL — malformed markup recovers per the [recovery table](#the-parse-pipeline) instead of throwing — and guarantees no two adjacent text siblings.                             |
 
 ### Helpers
 
@@ -161,7 +161,7 @@ Every node is plain, readonly data with no behavior — a discriminated union ke
 - **`document`** is the root and the only container the parser ever creates for the whole input. There is exactly one, and `HTMLInterface` guarantees it: a page and a fragment are the same shape, because nothing is implied or inserted.
 - **`element`** carries a lowercased `name`, `attributes` in source order, and `children`. Voidness, raw-textness, and block-ness are all DERIVED from the name against `VOID_ELEMENTS` / `RAW_ELEMENTS` / `BLOCK_ELEMENTS` — there is no `void` or `selfClosing` flag on a node to disagree with its own tag.
 - **`text`** carries decoded character data. The parser resolves references on the way in; the renderers re-encode minimally on the way out.
-- **`comment`** carries verbatim, never-decoded inner text. A bogus comment (`<?…>`, a non-doctype `<!…>`, a CDATA section) recovers to this same node, which is why the AST needs no processing-instruction or CDATA category.
+- **`comment`** carries verbatim, never-decoded inner text. A bogus comment (`<?…>`, a non-doctype `<!…>`, a CDATA section) recovers to this same node, which is why the AST needs no processing-instruction or CDATA category. The tokenizer builds only values it can write back: a produced `value` never begins with `>` or `->` and never contains `-->` or `--!>`, because an abrupt `<!-->` / `<!--->` closes as an EMPTY comment and an incorrect `--!>` close ends the comment exactly where a `-->` would, leaving what follows as ordinary text. The invariant lives in the tokenizer rather than the renderer because a comment decodes nothing — escaping inside one would change its text, not protect it — so a hand-built value that breaks it is dropped at render time instead (§ [Roundtrip laws](#roundtrip-laws)).
 - **`doctype`** carries the declared root `name` plus the optional `public` / `system` identifiers of a legacy declaration. It is an ordinary child in source order and it survives sanitizing: it carries structure, not risk.
 
 Attribute absence is a real distinction, not a sentinel: `value` is `undefined` for a valueless attribute (`<input disabled>`) and `''` for an explicitly empty one (`<input disabled="">`). There is no separate "minimized" flag, so a malformed or unterminated attribute recovers to an absent value rather than to invented text. A duplicate attribute name keeps its FIRST occurrence, matched case-insensitively.
@@ -188,6 +188,7 @@ Recovery is specified behavior, not accident. Every row here has a test in [`tes
 | `<` not followed by a letter, `/`, `!`, or `?`                                                                           | Literal text                                                                                                                      |
 | `<?…>`, a non-doctype `<!…>`, `<![CDATA[…]]>`                                                                            | A `CommentNode` (the bogus-comment recovery)                                                                                      |
 | Unterminated comment                                                                                                     | A comment running to the end of input                                                                                             |
+| Abrupt `<!-->` / `<!--->`, or an incorrect `--!>` close                                                                  | An EMPTY comment for the abrupt forms and a normal close for `--!>`; whatever follows stays ordinary text                         |
 | Incomplete tag at EOF                                                                                                    | Dropped, without losing the text before it                                                                                        |
 | Depth beyond `MAX_DEPTH`                                                                                                 | Content appends to the deepest allowed element; total, with no text loss                                                          |
 | `\r\n` / lone `\r`, `U+0000`                                                                                             | Normalized to `\n`; replaced with `U+FFFD`                                                                                        |
@@ -220,40 +221,41 @@ What roundtrips is the AST, NOT the input bytes. Three laws hold on parser-produ
 
 The differences between the input bytes and the canonical output are enumerated, not incidental:
 
-| Construct                      | Canonical form                                                                                         |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| Tag and attribute names        | ASCII-lowercased — `<P CLASS=a>` writes as `<p class="a">`                                             |
-| Attribute values               | Always double-quoted, with `&` and `"` re-encoded and nothing else                                     |
-| Valueless attribute            | Stays valueless — never normalized to `=""`                                                            |
-| Duplicate attribute            | Only the first occurrence survives                                                                     |
-| Void element                   | `<br>` — never `<br/>`, never a close tag                                                              |
-| Text                           | `&`, `<`, `>` re-encoded minimally; a decoded named reference writes as its character (`&copy;` → `©`) |
-| Character references           | Numeric references decode to their character; an unknown named reference stays literal                 |
-| `\r\n` / lone `\r`, `U+0000`   | `\n`; `U+FFFD`                                                                                         |
-| Implied closes and mis-nesting | The recovered tree's shape, not the source's tag order                                                 |
-| Dropped constructs             | Stay dropped — an incomplete tag at EOF, a stray close tag, an unterminated declaration                |
-| Comment body containing `-->`  | Written with the sequence neutralized (`--&gt;`) so the comment cannot be closed from inside           |
-| Doctype                        | `<!DOCTYPE html>` — uppercase keyword, lowercased name, quoted legacy identifiers                      |
+| Construct                      | Canonical form                                                                                                                                     |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tag and attribute names        | ASCII-lowercased — `<P CLASS=a>` writes as `<p class="a">`                                                                                         |
+| Attribute values               | Always double-quoted, with `&` and `"` re-encoded and nothing else                                                                                 |
+| Valueless attribute            | Stays valueless — never normalized to `=""`                                                                                                        |
+| Duplicate attribute            | Only the first occurrence survives                                                                                                                 |
+| Void element                   | `<br>` — never `<br/>`, never a close tag                                                                                                          |
+| Text                           | `&`, `<`, `>` re-encoded minimally; a decoded named reference writes as its character (`&copy;` → `©`)                                             |
+| Character references           | Numeric references decode to their character; an unknown named reference stays literal                                                             |
+| `\r\n` / lone `\r`, `U+0000`   | `\n`; `U+FFFD`                                                                                                                                     |
+| Implied closes and mis-nesting | The recovered tree's shape, not the source's tag order                                                                                             |
+| Dropped constructs             | Stay dropped — an incomplete tag at EOF, a stray close tag, an unterminated declaration                                                            |
+| Comment close variants         | An abrupt `<!-->` / `<!--->` writes as the empty `<!---->`, an incorrect `--!>` close writes as `-->`, and an unterminated comment gains its close |
+| Doctype                        | `<!DOCTYPE html>` — uppercase keyword, lowercased name, quoted legacy identifiers                                                                  |
 
 **A hand-built AST gets safety, not fidelity.** `renderHTML` accepts any node, including one no parser produced, and refuses rather than emits a construct that would reopen the document:
 
-| Hand-built violation                             | Rendered as                                     |
-| ------------------------------------------------ | ----------------------------------------------- |
-| A void element carrying children                 | `<br>` — the children are ignored               |
-| A raw body containing its own close-tag sequence | `<script></script>` — the body is dropped whole |
-| An invalid element name                          | Its children, with no tag at all                |
-| An unwritable attribute name                     | Omitted                                         |
-| An invalid doctype name                          | Nothing                                         |
+| Hand-built violation                                          | Rendered as                                     |
+| ------------------------------------------------------------- | ----------------------------------------------- |
+| A void element carrying children                              | `<br>` — the children are ignored               |
+| A raw body containing its own close-tag sequence              | `<script></script>` — the body is dropped whole |
+| An invalid element name                                       | Its children, with no tag at all                |
+| An unwritable attribute name                                  | Omitted                                         |
+| An invalid doctype name                                       | Nothing                                         |
+| A comment body carrying `-->` / `--!>`, or opening `>` / `->` | Nothing — the comment is dropped WHOLE          |
 
 ## The sanitize floor
 
-`sanitize` is a security boundary, and its options are allowed to narrow it, redirect it, or widen the _vocabulary_ — never to open a hole. Each of `elements`, `attributes`, and `schemes` REPLACES its default allowlist rather than extending it, and underneath all three sits a floor the options cannot lower:
+`sanitize` is a security boundary, and its options are allowed to narrow it, redirect it, or widen the _vocabulary_ — never to open a hole. Each of `elements`, `attributes`, and `schemes` REPLACES its default allowlist rather than extending it, and each accepts either shape of allowlist — a `ReadonlySet<string>` the caller builds, or a `readonly string[]`, so an exported frozen constant such as `SAFE_ELEMENTS` passes straight through without being copied into a `Set` first (`DistillOptions.elements` and `boilerplate` take both shapes too). Underneath all three sits a floor the options cannot lower:
 
 - **`UNSAFE_ELEMENTS` subtrees are removed WHOLE**, never unwrapped, even when the element allowlist names them. Unwrapping is precisely what makes them dangerous: the body of a `script`, `style`, `template`, or `noscript` becomes live markup the moment its wrapper disappears. Foreign content (`svg`, `math`) is here because this AST has no namespaces to police, and the form and metadata elements are here because they act rather than describe.
 - **Handler, styling, and namespaced attributes always go**: every case-insensitive `on*` name, `style`, `srcdoc`, `xmlns`, and any name the sanitizer will not write — which is what removes a namespaced `xlink:href`, whose colon is not a writable attribute-name character here — even when the attribute allowlist names them. `sanitize({ attributes: new Set(['href', 'onclick']) })` keeps `href` and still strips `onclick`; an allowlist is not a permission slip.
 - **A `URL_ATTRIBUTES` value is decoded before it is judged.** `sanitizeURL` decodes character references to a bounded fixpoint, strips ASCII whitespace and control characters, and only then checks the scheme — so `java&#115;cript:` is not a clever spelling of anything. `javascript:`, `data:`, `vbscript:`, `file:`, and the protocol-relative forms (`//`, `\\`, `/\`, `\/`) are refused whatever `schemes` says. A value that fails is REMOVED, not emptied, so nothing is left for a later pass to reinterpret. A value that still changes after the decode bound fails closed.
 - **A safe element merely outside the allowlist is UNWRAPPED to its children.** Wrapper soup melts while its content survives, and `mergeText` rejoins the text the splice put side by side — which is exactly why the sanitize fixpoint also holds through a reparse.
-- **Comments are dropped** unless `comments: true`. **A doctype survives untouched.**
+- **Comments are dropped** unless `comments: true`, and a comment that is KEPT is normalized through the renderer and reparsed, so a hand-built body carrying a close sequence is dropped here as well rather than travelling on. **A doctype survives untouched**, through the same normalization.
 
 Two consequences worth stating out loud. First, `SAFE_ATTRIBUTES` deliberately omits every resource `src`, so a sanitized `img` keeps its `alt` text and loses its download — sanitizing a page removes its ability to phone home, not only its ability to run code. `class` is kept because it is inert once `style`, `link`, `svg`, and `script` are gone, and because it is where a code block declares its language. Second, the output only ever leaves through `renderHTML`'s escaping grammar; the sanitizer never assembles markup itself.
 
@@ -384,7 +386,7 @@ for await (const node of page.stream()) node.category
 ### Sanitize, and watch the floor hold
 
 ```ts
-import { createHTML, renderHTML } from '@orkestrel/html'
+import { createHTML, renderHTML, SAFE_ELEMENTS } from '@orkestrel/html'
 
 const page = createHTML(
 	'<div id="wrap"><p onclick="steal()">Hi <script>steal()</script>' +
@@ -399,6 +401,11 @@ renderHTML(page.sanitize({ comments: true }).document)
 
 renderHTML(page.sanitize({ elements: new Set(['p']) }).document)
 // '<p>Hi bad</p>' - div and a are safe but unlisted, so they unwrap to their content
+
+// An allowlist is a Set or an array, so a frozen export needs no copy to be named explicitly.
+renderHTML(page.sanitize({ elements: ['p'] }).document) // '<p>Hi bad</p>' - same as the Set above
+renderHTML(page.sanitize({ elements: SAFE_ELEMENTS, comments: true }).document)
+// '<div><p>Hi <a>bad</a></p><!-- note --></div>' - the default vocabulary, spelled out
 
 const link = createHTML('<a href="/guide" onclick="steal()" title="Guide">g</a>')
 renderHTML(link.sanitize({ attributes: new Set(['href', 'onclick']) }).document)
@@ -426,11 +433,8 @@ const article = page.distill({ base: content.url }) // distill sanitizes interna
 renderMarkdown(article.document) // '# Title\n\nRead the [guide](https://x.dev/b).'
 renderMarkdown(safe.document) // 'Menu\n\n# Title\n\nRead the [guide](/b).'
 
-// Policy is data: name the regions to drop and the vocabulary to keep.
-const narrow = page.distill({
-	boilerplate: new Set(['footer']),
-	elements: new Set(['h1', 'p', 'a']),
-})
+// Policy is data: name the regions to drop and the vocabulary to keep, as a Set or an array.
+const narrow = page.distill({ boilerplate: ['footer'], elements: new Set(['h1', 'p', 'a']) })
 narrow.document.category // 'document' - always a handle, never a string
 ```
 

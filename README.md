@@ -36,13 +36,15 @@ renderMarkdown(article.document) // '# Title\n\nRead the [guide](https://x.dev/b
 
 ## Laws
 
-- **AST fixpoint** — `parseDocument(renderHTML(document))` deep-equals `document`.
+- **AST fixpoint** — `parseDocument(renderHTML(document))` deep-equals a parser-produced `document`.
 - **Canonical idempotence** — `renderHTML(parseDocument(renderHTML(document)))` equals
   `renderHTML(document)`.
 - **Sanitize fixpoint** — sanitizing sanitized output changes nothing, directly or through a reparse.
 
 What roundtrips is the AST, not the input bytes: canonical output lowercases names, quotes values,
 canonicalizes character references, writes `<br/>` as `<br>`, and keeps dropped constructs dropped.
+A hand-built AST that breaks an invariant — a void element with children, a comment body that could
+close itself — is rendered for safety instead of fidelity.
 
 ## Guide
 
