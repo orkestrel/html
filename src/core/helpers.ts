@@ -12,6 +12,8 @@ import {
 	MAX_DEPTH,
 	RAW_ELEMENTS,
 	SAFE_URL_SCHEMES,
+	TABLE_ALIGNMENTS,
+	TABLE_CELL_ELEMENTS,
 	URL_ATTRIBUTES,
 	VOID_ELEMENTS,
 } from './constants.js'
@@ -190,13 +192,14 @@ export function attributeOf(node: ElementNode, name: string): string | undefined
  * Filter an element's attributes down to the ones a sanitized document may carry.
  *
  * @remarks
- * The allowlist narrows what is kept, but three refusals hold whatever it contains: a
+ * The allowlist narrows what is kept, but fixed refusals hold whatever it contains: a
  * handler attribute (any case-insensitive `on*` name), a scripting or styling channel
  * (`style`, `srcdoc`), a namespaced or `xmlns` name, and a structurally unwritable name are
- * always removed; a {@link URL_ATTRIBUTES} value is passed through {@link sanitizeURL} and
- * the attribute is REMOVED - not emptied - when nothing safe survives. Names are
- * ASCII-lowercased, a duplicate keeps its first occurrence, source order is preserved, and
- * a valueless attribute stays valueless.
+ * always removed. An `align` value is narrowed to {@link TABLE_ALIGNMENTS} on
+ * {@link TABLE_CELL_ELEMENTS}, and a {@link URL_ATTRIBUTES} value is passed through
+ * {@link sanitizeURL}; either attribute is REMOVED - not emptied - when its extra rule
+ * fails. Names are ASCII-lowercased, a duplicate keeps its first occurrence, source order
+ * is preserved, and a valueless attribute stays valueless.
  *
  * @param node - The element whose attributes are being filtered
  * @param attributes - The allowed lowercase attribute names
@@ -227,6 +230,17 @@ export function sanitizeAttributes(
 					? Reflect.apply(has, attributes, [name]) === true
 					: Reflect.apply(Array.prototype.includes, attributes, [name]) === true)
 			) {
+				continue
+			}
+			if (name === 'align') {
+				const value = attribute.value?.trim().toLowerCase()
+				if (
+					value !== undefined &&
+					TABLE_CELL_ELEMENTS.includes(node.name.toLowerCase()) &&
+					TABLE_ALIGNMENTS.includes(value)
+				) {
+					kept.push({ name, value })
+				}
 				continue
 			}
 			if (!URL_ATTRIBUTES.includes(name)) {

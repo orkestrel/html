@@ -203,6 +203,7 @@ export function buildHTMLRoundtripCorpus(): readonly HTMLDocument[] {
 		'<select><option>a<option>b<optgroup><option>c</select>',
 		'<ruby><rt>a<rp>b<rt>c</ruby>',
 		'<p>one<div>two</div><table><tr><td>x<td>y<tr><th>z</table>',
+		'<table><thead><tr><th align=" RIGHT ">Head</th></tr></thead><tbody><tr><td align="left">Cell</td></tr></tbody></table>',
 		'<b><i>x</b>y</i>',
 		'</p>kept</unknown>',
 		'<my-widget data-x=1>hello</my-widget>',

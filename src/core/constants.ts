@@ -208,6 +208,7 @@ export const SAFE_ELEMENTS: readonly string[] = Object.freeze([
  * (`class="language-ts"`).
  */
 export const SAFE_ATTRIBUTES: readonly string[] = Object.freeze([
+	'align',
 	'alt',
 	'cite',
 	'class',
@@ -222,6 +223,23 @@ export const SAFE_ATTRIBUTES: readonly string[] = Object.freeze([
 	'title',
 	'width',
 ])
+
+/**
+ * The closed values a sanitized table-cell `align` attribute may carry. This finite
+ * vocabulary keeps alignment validation to exact string normalization and membership:
+ * the sanitizer deliberately gains no CSS or value-grammar parser and no general styling
+ * policy axis.
+ */
+export const TABLE_ALIGNMENTS: readonly string[] = Object.freeze(['center', 'left', 'right'])
+
+/**
+ * The elements on which a sanitized `align` attribute is honored. Although `align` is
+ * obsolete presentational HTML, its cell-only scope is a smaller security surface than a
+ * style declaration allowlist. `sanitizeAttributes` already receives the owning element,
+ * so it can narrow this allowlisted attribute just as it narrows URL attributes without a
+ * per-element policy mechanism.
+ */
+export const TABLE_CELL_ELEMENTS: readonly string[] = Object.freeze(['td', 'th'])
 
 /**
  * The URL schemes a sanitized document may name. A relative URL - anything without a

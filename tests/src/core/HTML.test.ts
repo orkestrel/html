@@ -489,6 +489,39 @@ describe('HTML - sanitize floor', () => {
 		)
 	})
 
+	it('keeps table-cell alignment unwidenable through Set and array attribute policies', () => {
+		const source =
+			'<div align="left">div</div><td align="justify">bad</td>' +
+			'<th align=" LEFT ">head</th><td align="CeNtEr">cell</td>'
+		for (const attributes of [new Set(['align']), ['align']]) {
+			expect(renderHTML(new HTML(source).sanitize({ attributes }).document)).toBe(
+				'<div>div</div><td>bad</td><th align="left">head</th><td align="center">cell</td>',
+			)
+		}
+	})
+
+	it('removes adversarial table-cell alignment spellings', () => {
+		const cases = [
+			{ name: 'justify', attribute: 'align="justify"' },
+			{ name: 'middle', attribute: 'align="middle"' },
+			{ name: 'empty', attribute: 'align=""' },
+			{ name: 'valueless', attribute: 'align' },
+			{ name: 'declaration splice', attribute: 'align="left;color:red"' },
+			{ name: 'compound value', attribute: 'align="left right"' },
+			{ name: 'entity encoded', attribute: 'align="&lt;left&gt;"' },
+			{ name: 'control splice', attribute: 'align="le\u0007ft"' },
+			{ name: 'leading junk', attribute: 'align="xleft"' },
+			{ name: 'trailing junk', attribute: 'align="leftx"' },
+		]
+		for (const alignment of cases) {
+			const clean = new HTML(`<td ${alignment.attribute}>cell</td>`).sanitize().document
+			expect({ name: alignment.name, html: renderHTML(clean) }).toEqual({
+				name: alignment.name,
+				html: '<td>cell</td>',
+			})
+		}
+	})
+
 	it('keeps the sanitizer floor after consumers attempt to mutate exported policy collections', () => {
 		const deleteUnsafe = Reflect.get(UNSAFE_ELEMENTS, 'delete')
 		const deleteURL = Reflect.get(URL_ATTRIBUTES, 'delete')
@@ -665,6 +698,21 @@ describe('HTML - sanitize laws', () => {
 			expect(new HTML(once).sanitize().document).toEqual(once)
 			expect(new HTML(parseDocument(renderHTML(once))).sanitize().document).toEqual(once)
 		}
+	})
+
+	it('keeps normalized cell alignment byte-identical through sanitize, render, and reparse', () => {
+		const page = new HTML(
+			'<table><thead><tr><th align=" RIGHT ">Head</th></tr></thead>' +
+				'<tbody><tr><td align="left">Cell</td></tr></tbody></table>',
+		)
+		const once = page.sanitize().document
+		const rendered =
+			'<table><thead><tr><th align="right">Head</th></tr></thead>' +
+			'<tbody><tr><td align="left">Cell</td></tr></tbody></table>'
+		expect(renderHTML(once)).toBe(rendered)
+		expect(new HTML(once).sanitize().document).toEqual(once)
+		expect(renderHTML(new HTML(rendered).sanitize().document)).toBe(rendered)
+		expect(new HTML(parseDocument(rendered)).sanitize().document).toEqual(once)
 	})
 
 	it('leaves an already-safe document identical', () => {

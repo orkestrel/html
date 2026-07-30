@@ -258,6 +258,71 @@ describe('sanitizeURL — mirrored URL-safety corpus (also in @orkestrel/markdow
 })
 
 describe('sanitizeAttributes', () => {
+	it('keeps and normalizes only the closed table-cell alignment values', () => {
+		const cases = [
+			{ source: 'left', value: 'left' },
+			{ source: 'right', value: 'right' },
+			{ source: 'center', value: 'center' },
+			{ source: ' LEFT ', value: 'left' },
+			{ source: 'CeNtEr', value: 'center' },
+		]
+		for (const name of ['td', 'th']) {
+			for (const alignment of cases) {
+				const element: ElementNode = {
+					category: 'element',
+					name,
+					attributes: [{ name: 'align', value: alignment.source }],
+					children: [],
+				}
+				expect(sanitizeAttributes(element, ['align'], SAFE_URL_SCHEMES)).toEqual([
+					{ name: 'align', value: alignment.value },
+				])
+			}
+		}
+	})
+
+	it('removes table alignment from every non-cell element even when allowlisted', () => {
+		for (const name of ['div', 'p', 'img', 'table', 'tr', 'thead']) {
+			const element: ElementNode = {
+				category: 'element',
+				name,
+				attributes: [{ name: 'align', value: 'left' }],
+				children: [],
+			}
+			expect({
+				name,
+				attributes: sanitizeAttributes(element, ['align'], SAFE_URL_SCHEMES),
+			}).toEqual({ name, attributes: [] })
+		}
+	})
+
+	it('removes every alignment value outside the exact closed vocabulary', () => {
+		const values: readonly (string | undefined)[] = [
+			'justify',
+			'middle',
+			'',
+			undefined,
+			'left;color:red',
+			'left right',
+			'<left>',
+			'le\u0007ft',
+			'xleft',
+			'leftx',
+		]
+		for (const value of values) {
+			const element: ElementNode = {
+				category: 'element',
+				name: 'td',
+				attributes: [value === undefined ? { name: 'align' } : { name: 'align', value }],
+				children: [],
+			}
+			expect({
+				value,
+				attributes: sanitizeAttributes(element, new Set(['align']), SAFE_URL_SCHEMES),
+			}).toEqual({ value, attributes: [] })
+		}
+	})
+
 	it('keeps allowlisted attributes in source order and preserves valuelessness', () => {
 		const element: ElementNode = {
 			category: 'element',

@@ -11,6 +11,8 @@ import {
 	SAFE_ATTRIBUTES,
 	SAFE_ELEMENTS,
 	SAFE_URL_SCHEMES,
+	TABLE_ALIGNMENTS,
+	TABLE_CELL_ELEMENTS,
 	UNSAFE_ELEMENTS,
 	URL_ATTRIBUTES,
 	VOID_ELEMENTS,
@@ -132,10 +134,24 @@ describe('behavioral collection invariants', () => {
 			},
 			{
 				collection: SAFE_ATTRIBUTES,
-				remove: 'href',
-				key: 'href',
+				remove: 'align',
+				key: 'align',
 				value: 'onclick',
 				original: Reflect.get(SAFE_ATTRIBUTES, '0'),
+			},
+			{
+				collection: TABLE_ALIGNMENTS,
+				remove: 'left',
+				key: 'left',
+				value: 'justify',
+				original: Reflect.get(TABLE_ALIGNMENTS, '0'),
+			},
+			{
+				collection: TABLE_CELL_ELEMENTS,
+				remove: 'td',
+				key: 'td',
+				value: 'div',
+				original: Reflect.get(TABLE_CELL_ELEMENTS, '0'),
 			},
 			{
 				collection: SAFE_URL_SCHEMES,
@@ -211,10 +227,15 @@ describe('behavioral collection invariants', () => {
 				renderHTML(
 					new HTML(
 						'<applet>drop</applet><script>drop</script><p>keep</p>' +
-							'<a href="https://example.test" onclick="x()">link</a>',
+							'<a href="https://example.test" onclick="x()">link</a>' +
+							'<div align="left">block</div><td align="justify">bad</td>' +
+							'<td align="left">cell</td>',
 					).sanitize().document,
 				),
-			).toBe('<p>keep</p><a href="https://example.test">link</a>')
+			).toBe(
+				'<p>keep</p><a href="https://example.test">link</a>' +
+					'<div>block</div><td>bad</td><td align="left">cell</td>',
+			)
 			expect(
 				renderHTML(
 					new HTML(
