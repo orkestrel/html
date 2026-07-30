@@ -34,6 +34,7 @@ import {
 	buildHTMLRoundtripCorpus,
 	buildSharedHTMLPreDocument,
 	buildURLSafetyCorpus,
+	createRecorder,
 	hasAdjacentHTMLText,
 } from '../../setup.js'
 
@@ -540,6 +541,37 @@ describe('pruneDocument', () => {
 			return [node]
 		})
 		expect(deepest[0]).toBe(0)
+	})
+
+	// The throw originates INSIDE the handler, after it has already kept several nodes, so
+	// this exercises the `prune(candidate)` call itself rather than an earlier traversal
+	// read. Fail-closed means the nodes it successfully kept are discarded too: a partial
+	// document would be one a policy never finished vetting.
+	it('fails closed when the prune handler throws, discarding even the nodes it already kept', () => {
+		const script: ElementNode = {
+			category: 'element',
+			name: 'script',
+			attributes: [],
+			children: [{ category: 'text', value: 'alert(1)' }],
+		}
+		const document: HTMLDocument = {
+			category: 'document',
+			children: [{ category: 'text', value: 'keep me' }, script],
+		}
+		const recorder = createRecorder<[HTMLNode]>()
+		const pruned = pruneDocument(document, (node) => {
+			recorder.handler(node)
+			if (node.category === 'element' && node.name === 'script') {
+				throw new Error('hostile handler')
+			}
+			return [node]
+		})
+
+		expect(recorder.count).toBeGreaterThan(1)
+		expect(pruned).toEqual({ category: 'document', children: [] })
+		expect(renderHTML(pruned)).toBe('')
+		expect(JSON.stringify(pruned)).not.toContain('keep me')
+		expect(JSON.stringify(pruned)).not.toContain('script')
 	})
 })
 
