@@ -335,6 +335,15 @@ describe('parseDocument entities and declarations', () => {
 })
 
 describe('parseDocument hostile corpus totality', () => {
+	it('parses a large repeated raw-element input within a linear-time bound', () => {
+		const source = '<script></script>'.repeat(15_000)
+		const start = performance.now()
+		const document = parseDocument(source)
+		const elapsed = performance.now() - start
+		expect(document.children).toHaveLength(15_000)
+		expect(elapsed).toBeLessThan(750)
+	})
+
 	const cases = [
 		'',
 		'<',

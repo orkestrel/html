@@ -250,9 +250,14 @@ export const SAFE_URL_SCHEMES: ReadonlySet<string> = Object.freeze(
  * are listed even though their elements are removed whole, because a hand-built AST can
  * carry them anywhere.
  */
-export const URL_ATTRIBUTES: ReadonlySet<string> = Object.freeze(
-	new Set(['action', 'cite', 'formaction', 'href', 'poster', 'src']),
-)
+export const URL_ATTRIBUTES: readonly string[] = Object.freeze([
+	'action',
+	'cite',
+	'formaction',
+	'href',
+	'poster',
+	'src',
+])
 
 /**
  * The hard floor of `sanitize`: elements whose entire subtree is removed, never unwrapped,
@@ -262,32 +267,30 @@ export const URL_ATTRIBUTES: ReadonlySet<string> = Object.freeze(
  * Foreign content (`svg`, `math`) is here because this AST has no namespaces to police,
  * and the form and metadata elements are here because they act rather than describe.
  */
-export const UNSAFE_ELEMENTS: ReadonlySet<string> = Object.freeze(
-	new Set([
-		'applet',
-		'base',
-		'button',
-		'dialog',
-		'embed',
-		'form',
-		'frame',
-		'frameset',
-		'iframe',
-		'input',
-		'link',
-		'math',
-		'meta',
-		'noscript',
-		'object',
-		'option',
-		'script',
-		'select',
-		'style',
-		'svg',
-		'template',
-		'textarea',
-	]),
-)
+export const UNSAFE_ELEMENTS: readonly string[] = Object.freeze([
+	'applet',
+	'base',
+	'button',
+	'dialog',
+	'embed',
+	'form',
+	'frame',
+	'frameset',
+	'iframe',
+	'input',
+	'link',
+	'math',
+	'meta',
+	'noscript',
+	'object',
+	'option',
+	'script',
+	'select',
+	'style',
+	'svg',
+	'template',
+	'textarea',
+])
 
 /**
  * The default element set `distill` keeps as content: prose, headings, lists, tables,

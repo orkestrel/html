@@ -332,12 +332,15 @@ export function scanRawText(
 	name: string,
 	entities = false,
 ): { readonly node: TextNode; readonly next: number; readonly closed: boolean } {
-	const lower = html.toLowerCase()
 	const marker = `</${name.toLowerCase()}`
 	let search = offset
 	while (search < html.length) {
-		const candidate = lower.indexOf(marker, search)
+		const candidate = html.indexOf('<', search)
 		if (candidate < 0) break
+		if (html.slice(candidate, candidate + marker.length).toLowerCase() !== marker) {
+			search = candidate + 1
+			continue
+		}
 		const boundary = html[candidate + marker.length]
 		if (boundary === '>' || (boundary !== undefined && /\s/.test(boundary))) {
 			const end = html.indexOf('>', candidate + marker.length)

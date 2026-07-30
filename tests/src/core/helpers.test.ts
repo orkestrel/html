@@ -12,6 +12,7 @@ import {
 	escapeMarkdown,
 	extractRegion,
 	foldNode,
+	isSafeURL,
 	mergeText,
 	parseDocument,
 	pruneDocument,
@@ -102,6 +103,25 @@ describe('HTML escaping and URL helpers', () => {
 		expect(sanitizeURL('&amp;#106;avascript:x', SAFE_URL_SCHEMES)).toBe('')
 		expect(sanitizeURL('&amp;amp;#x6A;avascript:x', SAFE_URL_SCHEMES)).toBe('')
 		expect(sanitizeURL(`&${'amp;'.repeat(10)}#106;avascript:x`, SAFE_URL_SCHEMES)).toBe('')
+	})
+
+	it('keeps the URL predicate and sanitizer on one C1-aware security floor', () => {
+		const schemes = new Set(['ftp', 'http', 'https'])
+		const values = [
+			'',
+			'/relative',
+			'//host/path',
+			'\\\\host\\path',
+			'https://example.test/path',
+			'ftp://example.test/path',
+			'javascript:alert(1)',
+			'java\u0085script:alert(1)',
+			'da\u009Fta:text/html,x',
+			'custom:value',
+		]
+		for (const value of values) {
+			expect(isSafeURL(value, schemes)).toBe(sanitizeURL(value, schemes) !== '')
+		}
 	})
 
 	it('resolves WHATWG URLs and preserves an unresolvable value', () => {
@@ -418,6 +438,19 @@ describe('renderHTML', () => {
 		expect(renderHTML(script)).toBe('<script></script>')
 	})
 
+	it('drops colon-bearing attributes from a hand-built element', () => {
+		const element: ElementNode = {
+			category: 'element',
+			name: 'a',
+			attributes: [
+				{ name: 'xlink:href', value: 'javascript:alert(1)' },
+				{ name: 'title', value: 'safe' },
+			],
+			children: [{ category: 'text', value: 'link' }],
+		}
+		expect(renderHTML(element)).toBe('<a title="safe">link</a>')
+	})
+
 	it('unwraps an invalid element name instead of writing an unsafe tag', () => {
 		const element: ElementNode = {
 			category: 'element',
@@ -505,6 +538,45 @@ describe('renderMarkdown projection', () => {
 		expect(renderMarkdown(document)).toBe(
 			'[link](/guide\\(a\\)) **strong** **bold** *em* *italic* ``x`y``  \n![a\\*b](/x.png)',
 		)
+	})
+
+	it('bounds inline and fenced code descendant walks by depth', () => {
+		let descendant: HTMLNode = { category: 'text', value: 'beyond-depth' }
+		for (let depth = 0; depth < MAX_DEPTH + 5; depth += 1) {
+			descendant = {
+				category: 'element',
+				name: 'span',
+				attributes: [],
+				children: [descendant],
+			}
+		}
+		const inline: ElementNode = {
+			category: 'element',
+			name: 'code',
+			attributes: [],
+			children: [descendant],
+		}
+		const fenced: ElementNode = {
+			category: 'element',
+			name: 'pre',
+			attributes: [],
+			children: [{ ...inline, attributes: [{ name: 'class', value: 'language-ts' }] }],
+		}
+		expect(renderMarkdown(inline)).not.toContain('beyond-depth')
+		expect(renderMarkdown(fenced)).not.toContain('beyond-depth')
+	})
+
+	it('terminates a cyclic inline-code descendant walk within the shared bound', () => {
+		const children: HTMLNode[] = []
+		const code: ElementNode = {
+			category: 'element',
+			name: 'code',
+			attributes: [],
+			children,
+		}
+		children.push(code)
+		const rendered = renderMarkdown(code)
+		expect(rendered.length).toBeLessThanOrEqual(MAX_DEPTH * 4)
 	})
 
 	it('projects horizontal rules and GFM tables', () => {

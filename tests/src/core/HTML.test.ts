@@ -2,6 +2,11 @@ import type { ElementNode, HTMLDocument, HTMLHandlers, HTMLNode, TextNode } from
 import {
 	HTML,
 	MAX_DEPTH,
+	SAFE_ELEMENTS,
+	SAFE_URL_SCHEMES,
+	UNSAFE_ELEMENTS,
+	URL_ATTRIBUTES,
+	isEmptyElement,
 	isElementNode,
 	isHTMLDocument,
 	isTextNode,
@@ -366,6 +371,55 @@ describe('HTML - sanitize floor', () => {
 		)
 	})
 
+	it('keeps the sanitizer floor after consumers attempt to mutate exported policy collections', () => {
+		const deleteUnsafe = Reflect.get(UNSAFE_ELEMENTS, 'delete')
+		const deleteURL = Reflect.get(URL_ATTRIBUTES, 'delete')
+		const addElement = Reflect.get(SAFE_ELEMENTS, 'add')
+		const addScheme = Reflect.get(SAFE_URL_SCHEMES, 'add')
+		try {
+			if (typeof deleteUnsafe === 'function') {
+				Reflect.apply(deleteUnsafe, UNSAFE_ELEMENTS, ['script'])
+			} else {
+				const index = Reflect.apply(Array.prototype.indexOf, UNSAFE_ELEMENTS, ['script'])
+				if (typeof index === 'number' && index >= 0) {
+					Reflect.deleteProperty(UNSAFE_ELEMENTS, String(index))
+				}
+			}
+			if (typeof deleteURL === 'function') {
+				Reflect.apply(deleteURL, URL_ATTRIBUTES, ['href'])
+			} else {
+				const index = Reflect.apply(Array.prototype.indexOf, URL_ATTRIBUTES, ['href'])
+				if (typeof index === 'number' && index >= 0) {
+					Reflect.deleteProperty(URL_ATTRIBUTES, String(index))
+				}
+			}
+			if (typeof addElement === 'function') Reflect.apply(addElement, SAFE_ELEMENTS, ['script'])
+			if (typeof addScheme === 'function') {
+				Reflect.apply(addScheme, SAFE_URL_SCHEMES, ['javascript'])
+			}
+			const page = new HTML(
+				'<script>alert(1)</script><p onclick="run()">text</p>' +
+					'<a href="javascript:alert(2)">link</a>',
+			)
+			expect(Object.isFrozen(UNSAFE_ELEMENTS)).toBe(true)
+			expect(Object.isFrozen(URL_ATTRIBUTES)).toBe(true)
+			expect(renderHTML(page.sanitize().document)).toBe('<p>text</p><a>link</a>')
+		} finally {
+			const addUnsafe = Reflect.get(UNSAFE_ELEMENTS, 'add')
+			const addURL = Reflect.get(URL_ATTRIBUTES, 'add')
+			const deleteElement = Reflect.get(SAFE_ELEMENTS, 'delete')
+			const deleteScheme = Reflect.get(SAFE_URL_SCHEMES, 'delete')
+			if (typeof addUnsafe === 'function') Reflect.apply(addUnsafe, UNSAFE_ELEMENTS, ['script'])
+			if (typeof addURL === 'function') Reflect.apply(addURL, URL_ATTRIBUTES, ['href'])
+			if (typeof deleteElement === 'function') {
+				Reflect.apply(deleteElement, SAFE_ELEMENTS, ['script'])
+			}
+			if (typeof deleteScheme === 'function') {
+				Reflect.apply(deleteScheme, SAFE_URL_SCHEMES, ['javascript'])
+			}
+		}
+	})
+
 	it('unwraps a safe element outside the allowlist and keeps its content', () => {
 		const page = new HTML('<my-widget><p>kept</p></my-widget>')
 		expect(renderHTML(page.sanitize().document)).toBe('<p>kept</p>')
@@ -384,9 +438,71 @@ describe('HTML - sanitize floor', () => {
 		expect(renderHTML(page.sanitize({ comments: true }).document)).toBe('<p>a<!--note--></p>')
 	})
 
+	it('neutralizes every retained-comment close variant and preserves the sanitize reparse law', () => {
+		const sources = [
+			'<!--x--!><script>alert(1)</script>-->',
+			'<!--><script>alert(1)</script>-->',
+			'<!---><script>alert(1)</script>-->',
+		]
+		for (const source of sources) {
+			const clean = new HTML(source).sanitize({ comments: true }).document
+			const rendered = renderHTML(clean)
+			expect(rendered).not.toContain('--!>')
+			expect(rendered).not.toContain('<!-->')
+			expect(rendered).not.toContain('<!--->')
+			const reparsed = parseDocument(rendered)
+			expect(
+				reparsed.children.some(
+					(node) => node.category === 'element' && node.name.toLowerCase() === 'script',
+				),
+			).toBe(false)
+			expect(reparsed).toEqual(clean)
+			expect(new HTML(reparsed).sanitize({ comments: true }).document).toEqual(clean)
+		}
+	})
+
 	it('keeps a doctype, which carries structure rather than risk', () => {
 		const page = new HTML('<!DOCTYPE html><p>a</p>')
 		expect(renderHTML(page.sanitize().document)).toBe('<!DOCTYPE html><p>a</p>')
+	})
+
+	it('canonicalizes unsafe doctype identifiers without serializing a live element', () => {
+		const document: HTMLDocument = {
+			category: 'document',
+			children: [
+				{
+					category: 'doctype',
+					name: 'html',
+					public: '"\'><script>alert(1)</script><x "',
+				},
+			],
+		}
+		expect(renderHTML(document)).not.toContain('<script>')
+		const clean = new HTML(document).sanitize().document
+		const rendered = renderHTML(clean)
+		expect(rendered).not.toContain('<script>')
+		expect(new HTML(parseDocument(rendered)).sanitize().document).toEqual(clean)
+	})
+
+	it('fails closed when a hostile children read interrupts sanitizing', () => {
+		const script: ElementNode = {
+			category: 'element',
+			name: 'script',
+			attributes: [],
+			children: [{ category: 'text', value: 'alert(1)' }],
+		}
+		const document: HTMLDocument = { category: 'document', children: [script] }
+		let reads = 0
+		Object.defineProperty(document, 'children', {
+			get() {
+				reads += 1
+				if (reads === 1) throw new Error('hostile children')
+				return [script]
+			},
+		})
+		const clean = new HTML(document).sanitize().document
+		expect(renderHTML(clean)).toBe('')
+		expect(JSON.stringify(clean)).not.toContain('script')
 	})
 
 	it('strips hidden and aria-hidden, the evidence distill therefore reads before sanitizing', () => {
@@ -599,6 +715,12 @@ describe('HTML - distill', () => {
 
 	it('drops an empty non-void element and keeps a void one', () => {
 		const page = new HTML('<main><p></p><p>x</p><br><img alt="a"></main>')
+		const empty = page.find(
+			(node): node is ElementNode =>
+				node.category === 'element' && node.name === 'p' && node.children.length === 0,
+		)
+		if (empty === undefined) throw new Error('expected empty paragraph')
+		expect(isEmptyElement(empty)).toBe(true)
 		expect(renderHTML(page.distill().document)).toBe('<p>x</p><br><img alt="a">')
 	})
 

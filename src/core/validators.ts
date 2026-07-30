@@ -25,6 +25,7 @@ import {
 	SAFE_URL_SCHEMES,
 	VOID_ELEMENTS,
 } from './constants.js'
+import { sanitizeURL } from './helpers.js'
 
 /**
  * Determine whether an arbitrary value is a structurally valid HTML attribute.
@@ -211,27 +212,7 @@ export function isBlockElement(name: string): boolean {
  * @returns `true` when the URL passes the sanitizer's protocol floor
  */
 export function isSafeURL(value: string, schemes: ReadonlySet<string> = SAFE_URL_SCHEMES): boolean {
-	let normalized = ''
-	for (const character of value) {
-		const point = character.codePointAt(0)
-		if (point !== undefined && point > 0x20 && point !== 0x7f) normalized += character
-	}
-	if (
-		normalized.length === 0 ||
-		normalized.startsWith('//') ||
-		normalized.startsWith('\\\\') ||
-		normalized.startsWith('/\\') ||
-		normalized.startsWith('\\/')
-	) {
-		return false
-	}
-	const match = /^([A-Za-z][A-Za-z0-9+.-]*):/.exec(normalized)
-	if (match === null) return true
-	const scheme = (match[1] ?? '').toLowerCase()
-	if (scheme === 'javascript' || scheme === 'data' || scheme === 'vbscript' || scheme === 'file') {
-		return false
-	}
-	return schemes.has(scheme)
+	return sanitizeURL(value, schemes) !== ''
 }
 
 /**

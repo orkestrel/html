@@ -218,7 +218,7 @@ export function sanitizeAttributes(
 			) {
 				continue
 			}
-			if (!URL_ATTRIBUTES.has(name)) {
+			if (!URL_ATTRIBUTES.includes(name)) {
 				kept.push(attribute.value === undefined ? { name } : { name, value: attribute.value })
 				continue
 			}
@@ -248,7 +248,7 @@ export function resolveAttributes(node: ElementNode, base: string): readonly HTM
 		const resolved: HTMLAttribute[] = []
 		for (const attribute of node.attributes) {
 			const name = attribute.name.toLowerCase()
-			if (URL_ATTRIBUTES.has(name) && attribute.value !== undefined) {
+			if (URL_ATTRIBUTES.includes(name) && attribute.value !== undefined) {
 				resolved.push({ name, value: resolveURL(attribute.value, base) })
 				continue
 			}
@@ -323,20 +323,30 @@ export function renderHTML(node: HTMLNode): string {
 					value = encodeText(current.value)
 					break
 				case 'comment':
-					value = `<!--${current.value.replaceAll('-->', '--&gt;')}-->`
+					value = current.value.replaceAll('--', '-&#45;')
+					if (value.startsWith('>')) value = `&gt;${value.slice(1)}`
+					if (value.startsWith('->')) value = `&#45;${value.slice(1)}`
+					if (value.endsWith('-')) value = `${value.slice(0, -1)}&#45;`
+					value = `<!--${value}-->`
 					break
 				case 'doctype': {
 					const name = current.name.toLowerCase()
 					if (!/^[a-z][a-z0-9:-]*$/.test(name)) break
 					value = `<!DOCTYPE ${name}`
-					if (current.public !== undefined) {
+					const publicSafe =
+						current.public !== undefined &&
+						(!current.public.includes('"') || !current.public.includes("'"))
+					const systemSafe =
+						current.system !== undefined &&
+						(!current.system.includes('"') || !current.system.includes("'"))
+					if (publicSafe && current.public !== undefined) {
 						const quote = current.public.includes('"') ? "'" : '"'
 						value += ` PUBLIC ${quote}${current.public}${quote}`
-						if (current.system !== undefined) {
+						if (systemSafe && current.system !== undefined) {
 							const systemQuote = current.system.includes('"') ? "'" : '"'
 							value += ` ${systemQuote}${current.system}${systemQuote}`
 						}
-					} else if (current.system !== undefined) {
+					} else if (systemSafe && current.system !== undefined) {
 						const quote = current.system.includes('"') ? "'" : '"'
 						value += ` SYSTEM ${quote}${current.system}${quote}`
 					}
@@ -352,7 +362,7 @@ export function renderHTML(node: HTMLNode): string {
 					let attributes = ''
 					for (const attribute of current.attributes) {
 						const attributeName = attribute.name.toLowerCase()
-						if (attributeName.length === 0 || /[\s=/"'<>]/.test(attributeName)) {
+						if (attributeName.length === 0 || /[\s=/"':<>]/.test(attributeName)) {
 							continue
 						}
 						attributes +=
@@ -481,6 +491,7 @@ export function renderMarkdown(node: HTMLNode): string {
 		}[] = [{ node, depth: -1, expanded: false, count: 0 }]
 		const values: {
 			readonly value: string
+			readonly text: string
 			readonly block: boolean
 			readonly list: boolean
 			readonly item: boolean
@@ -514,6 +525,8 @@ export function renderMarkdown(node: HTMLNode): string {
 			}
 			const children =
 				frame.count === 0 ? [] : values.splice(values.length - frame.count, frame.count)
+			let text = current.category === 'text' ? current.value : ''
+			for (const child of children) text += child.text
 			let result: {
 				readonly value: string
 				readonly block: boolean
@@ -584,20 +597,7 @@ export function renderMarkdown(node: HTMLNode): string {
 						rows,
 					}
 				} else if (name === 'code') {
-					let body = ''
-					const pending: HTMLNode[] = [...current.children].reverse()
-					while (pending.length > 0) {
-						const child = pending.pop()
-						if (child === undefined) continue
-						if (child.category === 'text') {
-							body += child.value
-						} else if (child.category === 'document' || child.category === 'element') {
-							for (let index = child.children.length - 1; index >= 0; index -= 1) {
-								const descendant = child.children[index]
-								if (descendant !== undefined) pending.push(descendant)
-							}
-						}
-					}
+					let body = text
 					body = body.replace(/\s*\n\s*/g, ' ')
 					let longest = 0
 					let run = 0
@@ -623,19 +623,7 @@ export function renderMarkdown(node: HTMLNode): string {
 					let body = ''
 					let language = ''
 					if (code?.category === 'element' && code.name.toLowerCase() === 'code') {
-						const pending: HTMLNode[] = [...code.children].reverse()
-						while (pending.length > 0) {
-							const child = pending.pop()
-							if (child === undefined) continue
-							if (child.category === 'text') {
-								body += child.value
-							} else if (child.category === 'document' || child.category === 'element') {
-								for (let index = child.children.length - 1; index >= 0; index -= 1) {
-									const descendant = child.children[index]
-									if (descendant !== undefined) pending.push(descendant)
-								}
-							}
-						}
+						body = children[0]?.text ?? ''
 						const classes = attributeOf(code, 'class')?.split(/\s+/) ?? []
 						for (const className of classes) {
 							if (className.startsWith('language-') && className.length > 9) {
@@ -816,7 +804,7 @@ export function renderMarkdown(node: HTMLNode): string {
 				}
 			}
 			if (stack.length === 0) return result.value.trim()
-			values.push(result)
+			values.push({ ...result, text })
 		}
 		return ''
 	} catch {
@@ -1131,7 +1119,7 @@ export function extractRegion(document: HTMLDocument, names: readonly string[]):
  *
  * @param document - The document to rebuild
  * @param prune - The bottom-up handler mapping one node to the nodes that replace it
- * @returns The rebuilt document, or the input document if pruning throws
+ * @returns The rebuilt document, or an empty document if pruning throws
  */
 export function pruneDocument(document: HTMLDocument, prune: HTMLPruneHandler): HTMLDocument {
 	try {
@@ -1201,8 +1189,8 @@ export function pruneDocument(document: HTMLDocument, prune: HTMLPruneHandler): 
 			}
 			results.push(replacements)
 		}
-		return document
+		return { category: 'document', children: [] }
 	} catch {
-		return document
+		return { category: 'document', children: [] }
 	}
 }

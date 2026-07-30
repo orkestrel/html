@@ -1,5 +1,6 @@
 import type {
 	DistillOptions,
+	ElementNode,
 	HTMLDocument,
 	HTMLHandlers,
 	HTMLInterface,
@@ -25,11 +26,13 @@ import {
 	mergeText,
 	pruneDocument,
 	resolveAttributes,
+	renderHTML,
 	rewriteDocument,
 	sanitizeAttributes,
 	walkNodes,
 } from './helpers.js'
 import { parseDocument } from './parsers.js'
+import { isEmptyElement } from './validators.js'
 
 /**
  * A parsed HTML document - the typed {@link HTMLDocument} AST plus the query
@@ -55,7 +58,7 @@ import { parseDocument } from './parsers.js'
  * import { HTML, isElementNode, renderMarkdown } from '@orkestrel/html'
  *
  * const page = new HTML('<nav>skip</nav><main><h1>Title</h1><p onclick="x()">Body</p></main>')
- * const prompt = renderMarkdown(page.sanitize().distill().document)
+ * const prompt = renderMarkdown(page.distill().document)
  * // '# Title\n\nBody'
  * page.find(isElementNode)?.name // 'nav' - the original document is untouched
  * ```
@@ -242,7 +245,7 @@ export class HTML implements HTMLInterface {
 	 *
 	 * @example
 	 * ```ts
-	 * const article = page.sanitize().distill({ base: 'https://example.test/docs/page' })
+	 * const article = page.distill({ base: 'https://example.test/docs/page' })
 	 * renderMarkdown(article.document) // prompt-ready markdown, links absolute
 	 * ```
 	 */
@@ -263,10 +266,18 @@ export class HTML implements HTMLInterface {
 		if (node.category === 'document') {
 			return [{ category: 'document', children: mergeText(node.children) }]
 		}
-		if (node.category === 'comment') return options.comments ? [node] : []
+		if (node.category === 'comment') {
+			if (!options.comments) return []
+			const normalized = parseDocument(renderHTML(node)).children[0]
+			return normalized?.category === 'comment' ? [normalized] : []
+		}
+		if (node.category === 'doctype') {
+			const normalized = parseDocument(renderHTML(node)).children[0]
+			return normalized?.category === 'doctype' ? [normalized] : []
+		}
 		if (node.category !== 'element') return [node]
 		const name = node.name.toLowerCase()
-		if (UNSAFE_ELEMENTS.has(name)) return []
+		if (UNSAFE_ELEMENTS.includes(name)) return []
 		if (!options.elements.has(name)) return node.children
 		return [
 			{
@@ -317,7 +328,13 @@ export class HTML implements HTMLInterface {
 		const literal = name === 'pre' || name === 'code'
 		const content = literal ? merged : collapseText(merged)
 		const childless = VOID_ELEMENTS.has(name)
-		if (content.length === 0 && !childless) return []
+		const kept: ElementNode = {
+			category: 'element',
+			name,
+			attributes: base === undefined ? node.attributes : resolveAttributes(node, base),
+			children: childless ? [] : content,
+		}
+		if (!childless && isEmptyElement(kept)) return []
 		const only = content[0]
 		if (
 			content.length === 1 &&
@@ -328,13 +345,6 @@ export class HTML implements HTMLInterface {
 		) {
 			return [only]
 		}
-		return [
-			{
-				category: 'element',
-				name,
-				attributes: base === undefined ? node.attributes : resolveAttributes(node, base),
-				children: childless ? [] : content,
-			},
-		]
+		return [kept]
 	}
 }
