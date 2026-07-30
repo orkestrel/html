@@ -7,11 +7,7 @@ import { createSource, parseManifest } from '@orkestrel/guide'
 export const GUIDE_ROOT = fileURLToPath(new URL('../', import.meta.url))
 
 /** Repository roots whose TypeScript and Markdown files participate in guide parity. */
-export const GUIDE_WALK_DIRECTORIES: readonly string[] = Object.freeze([
-	'src',
-	'guides',
-	'tests',
-])
+export const GUIDE_WALK_DIRECTORIES: readonly string[] = Object.freeze(['src', 'guides', 'tests'])
 
 export const SELF_SPECIFIERS = ['@orkestrel/html', '@src/core']
 
