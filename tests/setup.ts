@@ -567,6 +567,43 @@ export function buildEncodedHTMLSchemeCorpus(): readonly string[] {
 	return values
 }
 
+/** One entity-obfuscated URL and the exact value the HTML security floor may retain. */
+export interface HTMLEntityURLCase {
+	/** The behavior-specific case name. */
+	readonly name: string
+	/** The URL before entity decoding. */
+	readonly source: string
+	/** The decoded URL retained by the floor; absence means the attribute is removed. */
+	readonly value?: string
+}
+
+/**
+ * Build the entity-obfuscated URL corpus that exercises every reviewed scheme character.
+ *
+ * @returns Named controls, separators, nesting, mixed references, one allowed URL, and
+ * every hard-banned scheme
+ */
+export function buildHTMLEntityURLCorpus(): readonly HTMLEntityURLCase[] {
+	return [
+		{ name: 'named colon', source: 'javascript&colon;alert(1)' },
+		{ name: 'named tab', source: 'java&Tab;script&colon;x' },
+		{ name: 'named newline', source: 'java&NewLine;script&colon;x' },
+		{ name: 'named slashes', source: '&sol;&sol;host' },
+		{ name: 'mixed named slashes', source: '&bsol;&sol;host' },
+		{ name: 'double encoded colon', source: 'javascript&amp;colon;x' },
+		{ name: 'mixed numeric and named', source: 'java&#115;cript&colon;x' },
+		{
+			name: 'allowed named HTTPS',
+			source: 'https&colon;&sol;&sol;host',
+			value: 'https://host',
+		},
+		{ name: 'named javascript', source: 'javascript&colon;payload' },
+		{ name: 'named data', source: 'data&colon;payload' },
+		{ name: 'named vbscript', source: 'vbscript&colon;payload' },
+		{ name: 'named file', source: 'file&colon;&sol;&sol;&sol;tmp' },
+	]
+}
+
 /**
  * Build a hand-authored document deeper than the parser permits.
  *

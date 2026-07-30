@@ -1,6 +1,7 @@
 import type { ElementNode, HTMLDocument, HTMLHandlers, HTMLNode } from '@src/core'
 import {
 	MAX_DEPTH,
+	NAMED_ENTITIES,
 	SAFE_ATTRIBUTES,
 	SAFE_URL_SCHEMES,
 	attributeOf,
@@ -35,6 +36,7 @@ import {
 	buildDeepHTMLDocument,
 	buildBranchingHTMLElement,
 	buildDiamondHTMLDocument,
+	buildHTMLEntityURLCorpus,
 	buildHTMLRoundtripCorpus,
 	buildMarkdownPipelineInput,
 	buildMarkdownProjectionInputs,
@@ -106,6 +108,33 @@ describe('HTML escaping and URL helpers', () => {
 		expect(sanitizeURL('&amp;#106;avascript:x', SAFE_URL_SCHEMES)).toBe('')
 		expect(sanitizeURL('&amp;amp;#x6A;avascript:x', SAFE_URL_SCHEMES)).toBe('')
 		expect(sanitizeURL(`&${'amp;'.repeat(10)}#106;avascript:x`, SAFE_URL_SCHEMES)).toBe('')
+	})
+
+	it('sanitizes the complete reviewed named-entity URL corpus', () => {
+		for (const threat of buildHTMLEntityURLCorpus()) {
+			expect({ name: threat.name, value: sanitizeURL(threat.source, SAFE_URL_SCHEMES) }).toEqual({
+				name: threat.name,
+				value: threat.value ?? '',
+			})
+		}
+	})
+
+	it('honors eight changing decode passes and fails closed before a ninth rewrite', () => {
+		const bounded = `&${'amp;'.repeat(7)}colon;`
+		const excessive = `&${'amp;'.repeat(8)}colon;`
+		expect(sanitizeURL(bounded, SAFE_URL_SCHEMES)).toBe(':')
+		expect(sanitizeURL(excessive, SAFE_URL_SCHEMES)).toBe('')
+		expect(sanitizeURL(excessive, SAFE_URL_SCHEMES)).toBe('')
+	})
+
+	it('terminates without oscillation for every named entity value', () => {
+		for (const name of Object.keys(NAMED_ENTITIES)) {
+			const sanitized = sanitizeURL(`&${name};`, SAFE_URL_SCHEMES)
+			expect({ name, repeated: sanitizeURL(sanitized, SAFE_URL_SCHEMES) }).toEqual({
+				name,
+				repeated: sanitized,
+			})
+		}
 	})
 
 	it('keeps the URL predicate and sanitizer on one C1-aware security floor', () => {

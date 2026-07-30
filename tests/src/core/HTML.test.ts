@@ -29,6 +29,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import {
 	buildDeepHTMLDocument,
 	buildEncodedHTMLSchemeCorpus,
+	buildHTMLEntityURLCorpus,
 	buildHTMLPageInput,
 	buildHTMLRoundtripCorpus,
 	buildHTMLSanitizerCorpus,
@@ -696,6 +697,33 @@ describe('HTML - sanitize laws', () => {
 		const clean = new HTML(document).sanitize().document
 		expect(renderHTML(clean)).toBe('<a>link</a>')
 		expect(new HTML(parseDocument(renderHTML(clean))).sanitize().document).toEqual(clean)
+	})
+
+	it('records named-entity URL strengthening in both the AST and rendered output', () => {
+		for (const threat of buildHTMLEntityURLCorpus()) {
+			const clean = new HTML(`<a href="${threat.source}">link</a>`).sanitize().document
+			const attributes = threat.value === undefined ? [] : [{ name: 'href', value: threat.value }]
+			const expected: HTMLDocument = {
+				category: 'document',
+				children: [
+					{
+						category: 'element',
+						name: 'a',
+						attributes,
+						children: [{ category: 'text', value: 'link' }],
+					},
+				],
+			}
+			const html = threat.value === undefined ? '<a>link</a>' : `<a href="${threat.value}">link</a>`
+			expect({ name: threat.name, document: clean }).toEqual({
+				name: threat.name,
+				document: expected,
+			})
+			expect({ name: threat.name, html: renderHTML(clean) }).toEqual({
+				name: threat.name,
+				html,
+			})
+		}
 	})
 
 	it('preserves the sanitize reparse fixpoint across encoded-scheme families', () => {
