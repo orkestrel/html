@@ -700,6 +700,44 @@ describe('renderText', () => {
 		)
 		expect(renderText(document)).toBe('Title Area')
 	})
+
+	it('separates adjacent table cells with tabs', () => {
+		const document = parseDocument('<table><tr><td>a</td><td>b</td></tr></table>')
+		expect(renderText(document)).toBe('a\tb')
+	})
+
+	it('separates table rows with newlines', () => {
+		const document = parseDocument(
+			'<table><tr><th>Flag</th><th>Meaning</th></tr>' +
+				'<tr><td>--src</td><td>library</td></tr></table>',
+		)
+		expect(renderText(document)).toBe('Flag\tMeaning\n--src\tlibrary')
+	})
+
+	it('keeps block content within a cell while preserving the next cell boundary', () => {
+		const document = parseDocument('<table><tr><td><p>a1</p><p>a2</p></td><td>b</td></tr></table>')
+		expect(renderText(document)).toBe('a1\na2\tb')
+	})
+
+	it('preserves empty table cells as adjacent separators', () => {
+		const document = parseDocument('<table><tr><td>a</td><td></td><td>b</td></tr></table>')
+		expect(renderText(document)).toBe('a\t\tb')
+	})
+
+	it('preserves inherited whitespace within preformatted content', () => {
+		const document = parseDocument('<pre><code>line1\n  line2</code></pre>')
+		expect(renderText(document)).toBe('line1\n  line2')
+	})
+
+	it('collapses code whitespace outside preformatted content', () => {
+		const document = parseDocument('<code>line1\nline2</code>')
+		expect(renderText(document)).toBe('line1 line2')
+	})
+
+	it('preserves blank lines within preformatted content', () => {
+		const document = parseDocument('<pre>line1\n\nline3</pre>')
+		expect(renderText(document)).toBe('line1\n\nline3')
+	})
 })
 
 describe('AST walkers', () => {

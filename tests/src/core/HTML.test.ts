@@ -920,7 +920,7 @@ describe('HTML - distill', () => {
 		const page = new HTML(buildHTMLPageInput())
 		// The flat projection: heading level, link destination, and code fence are all gone,
 		// which is why `distill` returns a handle and rendering stays a separate choice.
-		expect(renderText(page.distill().document)).toBe('Title here\nBody bold link\nconst x = 1')
+		expect(renderText(page.distill().document)).toBe('Title here\nBody bold link\nconst x  =  1')
 	})
 
 	it('resolves relative URLs against a base', () => {

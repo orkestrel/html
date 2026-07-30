@@ -36,9 +36,10 @@ renderHTML(article.document) // '<h1>Title</h1><p>Read the <a href="https://x.de
 renderText(article.document) // 'Title\nRead the guide.'
 ```
 
-`renderText` is flat on purpose: heading levels, link destinations, list markers, and table geometry
-are not representable in plain text and do not survive it. Read the distilled AST, or serialize it
-with `renderHTML`, whenever the structure is the point.
+`renderText` is flat but structural: tabs preserve table cells, newlines preserve table rows and
+block boundaries, and whitespace beneath `pre` remains verbatim. Heading levels, link destinations,
+list markers and ordinals, nesting depth, and image `alt` attributes do not survive. Read the
+distilled AST, or serialize it with `renderHTML`, whenever those semantics are the point.
 
 ## Laws
 

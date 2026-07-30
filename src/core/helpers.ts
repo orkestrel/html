@@ -399,8 +399,10 @@ export function renderHTML(node: HTMLNode): string {
  * Project an HTML node to structural plain text.
  *
  * @remarks
- * Block and line-break elements contribute newline boundaries. Other whitespace
- * collapses to spaces. Script and style bodies are excluded; title and textarea text remains.
+ * Block and line-break elements contribute newline boundaries, adjacent table cells use
+ * tabs, and adjacent table rows use newlines. Whitespace collapses outside `pre` elements
+ * and remains verbatim inside them. Script and style bodies are excluded; title and
+ * textarea text remains.
  *
  * @param node - The node or document to project
  * @returns Structural plain text
@@ -411,50 +413,134 @@ export function renderText(node: HTMLNode): string {
 			readonly node: HTMLNode
 			readonly depth: number
 			readonly leaving: boolean
-		}[] = [{ node, depth: -1, leaving: false }]
-		let value = ''
+			readonly parent: ElementNode | undefined
+			readonly table: ElementNode | undefined
+			readonly preserved: boolean
+		}[] = [
+			{
+				node,
+				depth: -1,
+				leaving: false,
+				parent: undefined,
+				table: undefined,
+				preserved: false,
+			},
+		]
+		const segments: {
+			readonly value: string
+			readonly mode: 'normal' | 'preserved' | 'cell' | 'row'
+		}[] = []
+		let normal = ''
 		const visited = new WeakSet<object>()
+		const tables = new WeakSet<object>()
+		const rows = new WeakSet<object>()
 		while (stack.length > 0) {
 			const frame = stack.pop()
 			if (frame === undefined) continue
 			const current = frame.node
 			if (frame.leaving) {
-				if (
-					current.category === 'element' &&
-					(BLOCK_ELEMENTS.includes(current.name.toLowerCase()) ||
-						current.name.toLowerCase() === 'br')
-				) {
-					value += '\n'
+				if (current.category === 'element') {
+					const name = current.name.toLowerCase()
+					const tableRole = name === 'tr' || TABLE_CELL_ELEMENTS.includes(name)
+					if (!tableRole && (BLOCK_ELEMENTS.includes(name) || name === 'br')) normal += '\n'
 				}
 				continue
 			}
 			if (visited.has(current)) continue
 			visited.add(current)
 			if (current.category === 'text') {
-				value += current.value.replace(/\s+/g, ' ')
+				if (frame.preserved) {
+					if (normal !== '') segments.push({ value: normal, mode: 'normal' })
+					normal = ''
+					segments.push({ value: current.value, mode: 'preserved' })
+				} else {
+					normal += current.value.replace(/\s+/g, ' ')
+				}
 				continue
 			}
 			if (current.category !== 'document' && current.category !== 'element') continue
-			if (current.category === 'element' && RAW_ELEMENTS.includes(current.name.toLowerCase())) {
-				continue
+			let table = frame.table
+			let preserved = frame.preserved
+			let boundary = false
+			if (current.category === 'element') {
+				const name = current.name.toLowerCase()
+				if (RAW_ELEMENTS.includes(name)) continue
+				if (name === 'table') table = current
+				if (name === 'tr' && table !== undefined) {
+					if (tables.has(table)) {
+						if (normal !== '') segments.push({ value: normal, mode: 'normal' })
+						normal = ''
+						segments.push({ value: '\n', mode: 'row' })
+					} else {
+						tables.add(table)
+					}
+				}
+				if (
+					TABLE_CELL_ELEMENTS.includes(name) &&
+					frame.parent !== undefined &&
+					frame.parent.name.toLowerCase() === 'tr'
+				) {
+					if (rows.has(frame.parent)) {
+						if (normal !== '') segments.push({ value: normal, mode: 'normal' })
+						normal = ''
+						segments.push({ value: '\t', mode: 'cell' })
+					} else {
+						rows.add(frame.parent)
+					}
+				}
+				const tableRole = name === 'tr' || TABLE_CELL_ELEMENTS.includes(name)
+				boundary = !tableRole && (BLOCK_ELEMENTS.includes(name) || name === 'br')
+				preserved = preserved || name === 'pre'
 			}
-			const boundary =
-				current.category === 'element' &&
-				(BLOCK_ELEMENTS.includes(current.name.toLowerCase()) || current.name.toLowerCase() === 'br')
-			if (boundary) value += '\n'
+			if (boundary) normal += '\n'
 			if (frame.depth >= MAX_DEPTH) continue
-			stack.push({ node: current, depth: frame.depth, leaving: true })
+			stack.push({
+				node: current,
+				depth: frame.depth,
+				leaving: true,
+				parent: frame.parent,
+				table,
+				preserved: frame.preserved,
+			})
 			const depth = current.category === 'document' ? 0 : frame.depth + 1
 			for (let index = current.children.length - 1; index >= 0; index -= 1) {
 				const child = current.children[index]
-				if (child !== undefined) stack.push({ node: child, depth, leaving: false })
+				if (child !== undefined) {
+					stack.push({
+						node: child,
+						depth,
+						leaving: false,
+						parent: current.category === 'element' ? current : undefined,
+						table,
+						preserved,
+					})
+				}
 			}
 		}
+		if (normal !== '') segments.push({ value: normal, mode: 'normal' })
+		let value = ''
+		for (let index = 0; index < segments.length; index += 1) {
+			const segment = segments[index]
+			if (segment === undefined) continue
+			if (segment.mode !== 'normal') {
+				value += segment.value
+				continue
+			}
+			let text = segment.value
+				.replace(/[ \t]*\n[ \t]*/g, '\n')
+				.replace(/\n+/g, '\n')
+				.replace(/ +/g, ' ')
+			const previous = segments[index - 1]
+			const next = segments[index + 1]
+			if (index === 0 || previous?.mode === 'cell' || previous?.mode === 'row') {
+				text = text.trimStart()
+			}
+			if (index === segments.length - 1 || next?.mode === 'cell' || next?.mode === 'row') {
+				text = text.trimEnd()
+			}
+			value += text
+		}
 		return value
-			.replace(/[ \t]*\n[ \t]*/g, '\n')
-			.replace(/\n+/g, '\n')
-			.replace(/ +/g, ' ')
-			.trim()
 	} catch {
 		return ''
 	}
