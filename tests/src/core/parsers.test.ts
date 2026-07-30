@@ -4,6 +4,7 @@ import {
 	decodeEntities,
 	isHTMLDocument,
 	parseDocument,
+	renderHTML,
 	scanAttributes,
 	scanComment,
 	scanDoctype,
@@ -15,6 +16,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	buildDeepHTMLInput,
 	buildHTMLAttributeInput,
+	buildHTMLCommentEnumeration,
 	buildHTMLRoundtripCorpus,
 	buildMixedHTMLInput,
 	extractHTMLText,
@@ -474,7 +476,7 @@ describe('parseDocument hostile corpus totality', () => {
 })
 
 describe('parseDocument parse and guard soundness', () => {
-	it('constructs only comments that its renderer can represent', () => {
+	it('constructs representable comments throughout the representative roundtrip corpus', () => {
 		const violations: string[] = []
 		for (const document of buildHTMLRoundtripCorpus()) {
 			for (const node of walkNodes(document)) {
@@ -489,6 +491,31 @@ describe('parseDocument parse and guard soundness', () => {
 			}
 		}
 		expect(violations).toEqual([])
+	})
+
+	it('exhaustively preserves 57,812 unique bounded comment-token sources', () => {
+		const sources = buildHTMLCommentEnumeration()
+		const invariantFailures: string[] = []
+		const roundtripFailures: string[] = []
+		for (const source of sources) {
+			const document = parseDocument(source)
+			for (const node of walkNodes(document)) {
+				if (
+					node.category === 'comment' &&
+					(node.value.startsWith('>') ||
+						node.value.startsWith('->') ||
+						node.value.includes('-->') ||
+						node.value.includes('--!>'))
+				) {
+					invariantFailures.push(`${source}: ${node.value}`)
+				}
+			}
+			const reparsed = parseDocument(renderHTML(document))
+			if (JSON.stringify(reparsed) !== JSON.stringify(document)) roundtripFailures.push(source)
+		}
+		expect(sources).toHaveLength(57_812)
+		expect(invariantFailures).toEqual([])
+		expect(roundtripFailures).toEqual([])
 	})
 
 	it('every representative parse result satisfies isHTMLDocument', () => {

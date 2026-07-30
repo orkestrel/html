@@ -32,8 +32,11 @@ import {
 	buildHTMLPageInput,
 	buildHTMLRoundtripCorpus,
 	buildHTMLSanitizerCorpus,
+	buildHostileHTMLAllowlists,
+	buildShadowedHTMLAllowlist,
 	collectStream,
 	hasAdjacentHTMLText,
+	throwHostileHTMLAccess,
 } from '../../setup.js'
 
 // The HTML CLASS - the handle around a parsed HTMLDocument: construction, the one traversal
@@ -265,6 +268,22 @@ describe('HTML - fold', () => {
 		).not.toThrow()
 		expect(empties).toContain(true)
 	})
+
+	it('contains rewrite failures but propagates query, reduce, and fold callback failures', () => {
+		const page = new HTML('<p>x</p>')
+		const handlers: HTMLHandlers<never> = {
+			document: throwHostileHTMLAccess,
+			element: throwHostileHTMLAccess,
+			text: throwHostileHTMLAccess,
+			comment: throwHostileHTMLAccess,
+			doctype: throwHostileHTMLAccess,
+		}
+		expect(page.map(throwHostileHTMLAccess).document).toBe(page.document)
+		expect(() => page.find(throwHostileHTMLAccess)).toThrow('hostile option access')
+		expect(() => page.filter(throwHostileHTMLAccess)).toThrow('hostile option access')
+		expect(() => page.reduce(throwHostileHTMLAccess, 0)).toThrow('hostile option access')
+		expect(() => page.fold(handlers)).toThrow('hostile option access')
+	})
 })
 
 describe('HTML - stream', () => {
@@ -366,6 +385,53 @@ describe('HTML - sanitize floor', () => {
 			expect(renderHTML(new HTML(source).sanitize(policy).document)).toBe('<p>keep</p>link')
 		}
 	})
+
+	it('fails closed for every hostile sanitize allowlist field and iterator shape', () => {
+		const page = new HTML(
+			'<script>drop</script><p onclick="x()">keep</p><a href="javascript:x">link</a>',
+		)
+		for (const allowlist of buildHostileHTMLAllowlists()) {
+			const outputs = [
+				page.sanitize({ elements: allowlist }),
+				page.sanitize({ attributes: allowlist }),
+				page.sanitize({ schemes: allowlist }),
+			]
+			for (const output of outputs) {
+				expect(output.document).toEqual({ category: 'document', children: [] })
+				expect(renderHTML(output.document)).toBe('')
+			}
+		}
+	})
+
+	it('fails closed when reading the sanitize options object or comment policy throws', () => {
+		const trapped: SanitizeOptions = new Proxy({}, { get: throwHostileHTMLAccess })
+		const comments: SanitizeOptions = {}
+		Object.defineProperty(comments, 'comments', { get: throwHostileHTMLAccess })
+		for (const options of [trapped, comments]) {
+			const clean = new HTML('<script>drop</script><p onclick="x()">keep</p>').sanitize(options)
+			expect(clean.document).toEqual({ category: 'document', children: [] })
+			expect(renderHTML(clean.document)).toBe('')
+		}
+	})
+
+	it('normalizes sanitize allowlists without consulting hostile has or size members', () => {
+		const page = new HTML(
+			'<script>drop</script><p onclick="x()">keep</p><a href="javascript:x">link</a>',
+		)
+		const allowlist = buildShadowedHTMLAllowlist()
+		const outputs = [
+			page.sanitize({ elements: allowlist }),
+			page.sanitize({ attributes: allowlist }),
+			page.sanitize({ schemes: allowlist }),
+		]
+		for (const output of outputs) {
+			const rendered = renderHTML(output.document)
+			expect(rendered).not.toContain('<script')
+			expect(rendered).not.toContain('onclick')
+			expect(rendered).not.toContain('javascript:')
+		}
+	})
+
 	it('removes an unsafe subtree whole instead of unwrapping it', () => {
 		const page = new HTML('<div>before<script>alert(1)</script><style>b{}</style>after</div>')
 		expect(renderHTML(page.sanitize().document)).toBe('<div>beforeafter</div>')
@@ -722,6 +788,50 @@ describe('HTML - distill', () => {
 		expect(arrays).toEqual(sets)
 		expect(renderHTML(arrays)).toBe('<h1>Title</h1><p>Body</p>')
 	})
+
+	it('fails closed for every hostile distill allowlist field and iterator shape', () => {
+		const page = new HTML(
+			'<nav>noise</nav><main><script>drop</script><p onclick="x()">keep</p></main>',
+		)
+		for (const allowlist of buildHostileHTMLAllowlists()) {
+			const outputs = [
+				page.distill({ elements: allowlist }),
+				page.distill({ boilerplate: allowlist }),
+			]
+			for (const output of outputs) {
+				expect(output.document).toEqual({ category: 'document', children: [] })
+				expect(renderHTML(output.document)).toBe('')
+			}
+		}
+	})
+
+	it('fails closed when reading the distill options object or base policy throws', () => {
+		const trapped: DistillOptions = new Proxy({}, { get: throwHostileHTMLAccess })
+		const base: DistillOptions = {}
+		Object.defineProperty(base, 'base', { get: throwHostileHTMLAccess })
+		for (const options of [trapped, base]) {
+			const distilled = new HTML('<main><script>drop</script><p>keep</p></main>').distill(options)
+			expect(distilled.document).toEqual({ category: 'document', children: [] })
+			expect(renderHTML(distilled.document)).toBe('')
+		}
+	})
+
+	it('normalizes distill allowlists without consulting hostile has or size members', () => {
+		const page = new HTML(
+			'<nav>noise</nav><main><script>drop</script><p onclick="x()">keep</p></main>',
+		)
+		const allowlist = buildShadowedHTMLAllowlist()
+		const outputs = [
+			page.distill({ elements: allowlist }),
+			page.distill({ boilerplate: allowlist }),
+		]
+		for (const output of outputs) {
+			const rendered = renderHTML(output.document)
+			expect(rendered).not.toContain('<script')
+			expect(rendered).not.toContain('onclick')
+		}
+	})
+
 	it('reduces a whole page to its article content', () => {
 		const page = new HTML(buildHTMLPageInput())
 		expect(renderHTML(page.distill().document)).toBe(

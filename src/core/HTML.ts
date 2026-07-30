@@ -8,6 +8,7 @@ import type {
 	HTMLRewriteHandler,
 	SanitizeOptions,
 } from './types.js'
+import { attempt } from '@orkestrel/contract'
 import {
 	BOILERPLATE_ELEMENTS,
 	CONTENT_ELEMENTS,
@@ -209,15 +210,18 @@ export class HTML implements HTMLInterface {
 	 * ```
 	 */
 	sanitize(options?: SanitizeOptions): HTMLInterface {
-		const elements = new Set(options?.elements ?? SAFE_ELEMENTS)
-		const attributes = new Set(options?.attributes ?? SAFE_ATTRIBUTES)
-		const schemes = new Set(options?.schemes ?? SAFE_URL_SCHEMES)
-		const comments = options?.comments ?? false
-		return new HTML(
-			pruneDocument(this.#document, (node) =>
-				this.#cleanNode(node, elements, attributes, schemes, comments),
-			),
-		)
+		const outcome = attempt(() => {
+			const elements = new Set(options?.elements ?? SAFE_ELEMENTS)
+			const attributes = new Set(options?.attributes ?? SAFE_ATTRIBUTES)
+			const schemes = new Set(options?.schemes ?? SAFE_URL_SCHEMES)
+			const comments = options?.comments ?? false
+			return new HTML(
+				pruneDocument(this.#document, (node) =>
+					this.#cleanNode(node, elements, attributes, schemes, comments),
+				),
+			)
+		})
+		return outcome.success ? outcome.value : new HTML('')
 	}
 
 	/**
@@ -250,12 +254,15 @@ export class HTML implements HTMLInterface {
 	 * ```
 	 */
 	distill(options?: DistillOptions): HTMLInterface {
-		const boilerplate = new Set(options?.boilerplate ?? BOILERPLATE_ELEMENTS)
-		const elements = new Set(options?.elements ?? CONTENT_ELEMENTS)
-		const base = options?.base
-		const visible = pruneDocument(this.#document, (node) => this.#pruneRegion(node, boilerplate))
-		const rooted = extractRegion(new HTML(visible).sanitize().document, REGION_ELEMENTS)
-		return new HTML(pruneDocument(rooted, (node) => this.#keepContent(node, elements, base)))
+		const outcome = attempt(() => {
+			const boilerplate = new Set(options?.boilerplate ?? BOILERPLATE_ELEMENTS)
+			const elements = new Set(options?.elements ?? CONTENT_ELEMENTS)
+			const base = options?.base
+			const visible = pruneDocument(this.#document, (node) => this.#pruneRegion(node, boilerplate))
+			const rooted = extractRegion(new HTML(visible).sanitize().document, REGION_ELEMENTS)
+			return new HTML(pruneDocument(rooted, (node) => this.#keepContent(node, elements, base)))
+		})
+		return outcome.success ? outcome.value : new HTML('')
 	}
 
 	// The sanitize policy for one node, applied bottom-up by `pruneDocument`, which hands the

@@ -422,7 +422,7 @@ describe('renderHTML', () => {
 		)
 	})
 
-	it('roundtrips every parser-produced representable comment without losing content', () => {
+	it('roundtrips representative parser-produced comments without losing content', () => {
 		const sources = [
 			'<!-->x-->',
 			'<!--->x-->',

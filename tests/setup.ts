@@ -187,7 +187,7 @@ export function buildDeepHTMLInput(depth: number, leaf = 'leaf'): string {
 /**
  * Build a representative parser-produced corpus for HTML roundtrip laws.
  *
- * @returns Documents covering realistic pages and every parser recovery family
+ * @returns Documents covering realistic pages and representative parser recovery families
  */
 export function buildHTMLRoundtripCorpus(): readonly HTMLDocument[] {
 	const sources = [
@@ -225,6 +225,77 @@ export function buildHTMLRoundtripCorpus(): readonly HTMLDocument[] {
 		'<script>unterminated <b>&amp;',
 	]
 	return sources.map((source) => parseDocument(source))
+}
+
+/**
+ * Build every unique bounded comment-token source from three introducers and a small alphabet.
+ *
+ * @returns All sources with a `<!--`, `<!`, or `<?` introducer and up to six suffix characters
+ */
+export function buildHTMLCommentEnumeration(): readonly string[] {
+	const alphabet = ['<', '!', '-', '>', 'x']
+	const suffixes = ['']
+	let start = 0
+	for (let depth = 0; depth < 6; depth += 1) {
+		const end = suffixes.length
+		for (let index = start; index < end; index += 1) {
+			const suffix = suffixes[index]
+			if (suffix === undefined) continue
+			for (const character of alphabet) suffixes.push(suffix + character)
+		}
+		start = end
+	}
+	const sources = new Set<string>()
+	for (const prefix of ['<!--', '<!', '<?']) {
+		for (const suffix of suffixes) sources.add(prefix + suffix)
+	}
+	return [...sources]
+}
+
+/**
+ * Throw whenever a hostile test value is asked to produce or expose collection behavior.
+ *
+ * @returns Never returns
+ */
+export function throwHostileHTMLAccess(): never {
+	throw new Error('hostile option access')
+}
+
+/**
+ * Return a value that deliberately violates the iterator protocol.
+ *
+ * @returns A non-iterator value
+ */
+export function returnHTMLNonIterator(): number {
+	return 0
+}
+
+/**
+ * Build the hostile allowlist shapes every shaping option must contain.
+ *
+ * @returns Throwing-iterator, throwing-proxy, and malformed-iterator collections
+ */
+export function buildHostileHTMLAllowlists(): readonly (ReadonlySet<string> | readonly string[])[] {
+	const throwing = new Set(['script', 'p', 'onclick', 'href', 'javascript'])
+	Object.defineProperty(throwing, Symbol.iterator, { value: throwHostileHTMLAccess })
+	const trapped = new Proxy(new Set(['script', 'p', 'onclick', 'href', 'javascript']), {
+		get: throwHostileHTMLAccess,
+	})
+	const malformed = new Set(['script', 'p', 'onclick', 'href', 'javascript'])
+	Object.defineProperty(malformed, Symbol.iterator, { value: returnHTMLNonIterator })
+	return [throwing, trapped, malformed]
+}
+
+/**
+ * Build an allowlist whose collection-query members throw if normalization consults them.
+ *
+ * @returns An iterable Set with hostile `has` and `size` accessors
+ */
+export function buildShadowedHTMLAllowlist(): ReadonlySet<string> {
+	const allowlist = new Set(['script', 'p', 'onclick', 'href', 'javascript'])
+	Object.defineProperty(allowlist, 'has', { get: throwHostileHTMLAccess })
+	Object.defineProperty(allowlist, 'size', { get: throwHostileHTMLAccess })
+	return allowlist
 }
 
 /**
