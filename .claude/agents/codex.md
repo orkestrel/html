@@ -77,6 +77,13 @@ argument, diagnosis, correctness/security audit, and constraint review. Capture
 repository status before and after. Require evidence for every claim and return
 unsupported claims as dropped.
 
+An audit brief states its subject as a numbered list of falsifiable claims rather
+than a diff to read, and requires Sol to attempt refutation: each claim comes back
+CONFIRMED with the evidence that convinced it, or BROKEN with the exact failing
+input, state, or interleaving. The Falsification section of
+`.claude/rules/quality.md` owns that method — point the brief at it instead of
+restating it.
+
 ## Implementer
 
 Sandbox `workspace-write`, main checkout, sole serial writer from a clean

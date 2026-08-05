@@ -111,6 +111,16 @@ Keep Vitest/provider configuration minimal:
 - Remove exploratory settings after fixing the cause.
 - Config comments explain the current reason, not the history of failed experiments.
 
+## Untestable usually means missing seam
+
+Before accepting that a behavior cannot be tested, look for the seam that would make it testable.
+
+- A collaborator reached through a hard-coded global — a stream, a clock source, a spawn, a fetch — is a missing injection point, not an untestable truth. An injected collaborator with a real minimal implementation is a sanctioned boundary stub, not a mock of project-owned behavior.
+- Prefer adding the seam over shipping the gap whenever the seam is one the design would welcome anyway, and whenever a sibling collaborator is already injected.
+- When a gap is genuinely irreducible, record it where a reader meets it: what is unproven, why it cannot be driven, and what would change that. A silent untested guard reads exactly like a tested one.
+
+Coverage reporting is a discovery input, never evidence of proof. It answers one cheap mechanical question — which code no test even executed — and that question reliably finds forgotten branches and rules nothing calls. It cannot tell you whether an executed line is asserted, so a fully covered file can still be entirely unproven. Read a coverage report to find candidates for the adequacy audit; never cite it as the audit's result, and never let a percentage become the target.
+
 ## Discovery and adequacy audit
 
 Before acceptance:

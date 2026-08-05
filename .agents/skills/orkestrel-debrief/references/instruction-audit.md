@@ -63,6 +63,15 @@ Findings land as one of:
   probe-first, journal-first, verdict shapes, launch ownership) land in the operating
   contract, mirrored across providers.
 
+## Two questions every round asks
+
+- **Which findings came from falsification rather than diff reading**, and is the brief
+  shape that produced them doctrine yet? Route to the Falsification law in
+  `.claude/rules/quality.md`.
+- **Which shipped gaps were accepted as untestable**, and was each one genuinely
+  irreducible or a missing seam? Route to the missing-seam law in
+  `.claude/rules/tests.md`.
+
 ## Mirror discipline
 
 Every roster or contract change lands on all provider surfaces in the same round: the

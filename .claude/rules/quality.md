@@ -21,6 +21,16 @@ paths:
 - Treat existing code, tests, `old/`, branches, and copied projects as evidence rather than authority.
 - Build a capability/defect matrix before a broad API or production-readiness change. Every row ends as implement, repair, retain, or intentionally exclude with evidence.
 
+## Falsification
+
+A review that reads a diff finds what the diff shows; a review that tries to break named claims finds what the diff hides. Code that has already passed diff review several times can still carry a defect nobody has yet tried to trigger.
+
+- State an audit's subject as a numbered list of the claims the work makes, never as “review this diff”. Each claim is falsifiable: a property some concrete input, state, or interleaving could show false.
+- Instruct the auditor to attempt refutation rather than confirmation. A claim it cannot break is reported CONFIRMED with the evidence that convinced it; a claim it breaks is reported BROKEN with the exact failing input, state, or interleaving, plus the smallest correct fix.
+- Derive claims from what the change asserts under adverse conditions: cancellation, restart, concurrency, partial failure, hostile input, resource exhaustion, and the orderings a happy path never reaches.
+- Read the installed declaration or implementation of every substrate a claim depends on. A claim about `stop()` is unfalsifiable until you know what `stop()` does when the status is not the one the caller assumed.
+- An audit returning only confirmations has either audited trivial claims or has not tried. Name the claims you could not break, so the next round knows what has already been attacked.
+
 ## Ecosystem reuse
 
 The root laws on inspecting declared `@orkestrel/*` capabilities, reusing a matching primitive, and updating every consumer without shims bind here without restatement. They leave this file the judgment calls:

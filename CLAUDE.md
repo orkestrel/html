@@ -163,10 +163,12 @@ absorbed.
    patches serially; route cross-cutting findings.
 5. **Audit adversarially.** Every nontrivial implementation gets `reviewer` (Opus 5, design
    fit) and `analyst` (Sol, correctness and constraints) independently, plus `checker` for
-   mechanical conformance. In a fix round the unit's auditor is an engine that did not write
-   it. Multi-round audits use one fixed verdict shape with a single terminal line, defined by
-   the campaign skill. Reconcile their evidence; a finding neither engine can substantiate
-   against the evidence is dropped on the record.
+   mechanical conformance. An audit brief states its subject as numbered falsifiable claims
+   and requires per-claim CONFIRMED/BROKEN with evidence, per the Falsification law in
+   `.claude/rules/quality.md`. In a fix round the unit's auditor is an engine that did not
+   write it. Multi-round audits use one fixed verdict shape with a single terminal line,
+   defined by the campaign skill. Reconcile their evidence; a finding neither engine can
+   substantiate against the evidence is dropped on the record.
 6. **Verify.** One independent `verifier` runs the authoritative gates.
 7. **Accept.** The Orchestrator decides and reports concise outcomes, decisions, evidence, and
    remaining risk.
