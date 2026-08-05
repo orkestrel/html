@@ -6,9 +6,9 @@
 // `kind` / `type`). There is exactly one root, the {@link HTMLDocument}, and nothing is
 // implied or inserted that the source did not write: no synthesized `html` / `head` /
 // `body`, and a `<!DOCTYPE html>` is an ordinary {@link DoctypeNode} child in source
-// order. Parsing is total - every input produces a document, so there are no parse
-// options, no issue list, and no errors; strictness lives in the guards and in the
-// renderer's refusals. Every node is data with no behavior: the interface owns the
+// order. Document parsing is total - every input produces a document, so there are no
+// parse options, no issue list, and no errors; `parseStartTag` is the separate fail-closed
+// source boundary. Every node is data with no behavior: the interface owns the
 // traversal, rewrite, fold, sanitize, and distill operations over it, and each renderer
 // is a downstream projection from the AST to a string.
 
@@ -29,6 +29,40 @@ export interface HTMLAttribute {
 	readonly name: string
 	/** The attribute's value; absent for a valueless attribute (`<input disabled>`). */
 	readonly value?: string
+}
+
+/**
+ * One unambiguous start tag parsed directly from source without recovery.
+ *
+ * @remarks
+ * `name` and attribute names are ASCII-lowercased, while `next` remains an exact
+ * UTF-16 source offset immediately after the closing `>`. `slashed` reports the
+ * trailing solidus that was not absorbed into an attribute value; it does not claim the
+ * named HTML element is semantically self-closing. The package deliberately retains its narrow
+ * ASCII tag-name grammar. Malformed, ambiguous, duplicated, or incomplete source produces
+ * no value through `parseStartTag`.
+ */
+export interface HTMLStartTag {
+	/** The tag's ASCII-lowercased name. */
+	readonly name: string
+	/** The tag's ordered, ASCII-lowercased attributes. */
+	readonly attributes: readonly HTMLAttribute[]
+	/** Whether the tokenizer recognized a trailing solidus outside an attribute value. */
+	readonly slashed: boolean
+	/** The exclusive UTF-16 source offset immediately after the closing `>`. */
+	readonly next: number
+}
+
+/** One start or close tag returned by the total, recovering `scanTag` scanner. */
+export interface HTMLTag {
+	/** The tag's ASCII-lowercased name. */
+	readonly name: string
+	/** The start tag's attributes; always empty for a close tag. */
+	readonly attributes: readonly HTMLAttribute[]
+	/** Whether the source token is a close tag. */
+	readonly closing: boolean
+	/** The exclusive UTF-16 source offset immediately after the recovered tag boundary. */
+	readonly next: number
 }
 
 /**
@@ -54,8 +88,8 @@ export interface ElementNode {
 
 /**
  * A run of character data - the leaf node. `value` is the decoded text: numeric and
- * HTML4 named character references are already resolved (an unknown named reference
- * stays literal), and the renderer re-encodes `&`, `<`, and `>` on the way out.
+ * semicolon-terminated WHATWG named character references are already resolved (an unknown
+ * named reference stays literal), and the renderer re-encodes `&`, `<`, and `>` on the way out.
  */
 export interface TextNode {
 	readonly category: 'text'

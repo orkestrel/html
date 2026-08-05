@@ -5,100 +5,38 @@ import type {
 	HTMLAttribute,
 	HTMLDocument,
 	HTMLNode,
+	HTMLStartTag,
+	HTMLTag,
 	TextNode,
 } from './types.js'
 import {
+	HTML_WHITESPACE,
 	IMPLIED_CLOSERS,
 	LITERAL_ELEMENTS,
 	MAX_DEPTH,
-	NAMED_ENTITIES,
 	RAW_ELEMENTS,
 	VOID_ELEMENTS,
 } from './constants.js'
-
-/**
- * Decode numeric and HTML4 named character references in a string.
- *
- * @param value - The source text or attribute value
- * @returns The decoded value, retaining unknown named references literally
- */
-export function decodeEntities(value: string): string {
-	let decoded = ''
-	let index = 0
-	while (index < value.length) {
-		if (value[index] !== '&') {
-			decoded += value[index] ?? ''
-			index += 1
-			continue
-		}
-		const start = index
-		index += 1
-		if (value[index] === '#') {
-			index += 1
-			let radix = 10
-			if (value[index] === 'x' || value[index] === 'X') {
-				radix = 16
-				index += 1
-			}
-			const digits = index
-			while (
-				index < value.length &&
-				(radix === 16 ? /[0-9A-Fa-f]/.test(value[index] ?? '') : /[0-9]/.test(value[index] ?? ''))
-			) {
-				index += 1
-			}
-			if (index > digits && value[index] === ';') {
-				const scalar = Number.parseInt(value.slice(digits, index), radix)
-				decoded +=
-					Number.isFinite(scalar) &&
-					scalar > 0 &&
-					scalar <= 0x10ffff &&
-					!(scalar >= 0xd800 && scalar <= 0xdfff)
-						? String.fromCodePoint(scalar)
-						: '\uFFFD'
-				index += 1
-				continue
-			}
-			decoded += value.slice(start, index)
-			continue
-		}
-		const name = index
-		while (index < value.length && /[A-Za-z0-9]/.test(value[index] ?? '')) index += 1
-		if (index > name && value[index] === ';') {
-			const key = value.slice(name, index)
-			const entity = Object.hasOwn(NAMED_ENTITIES, key) ? NAMED_ENTITIES[key] : undefined
-			if (entity !== undefined) {
-				decoded += entity
-				index += 1
-				continue
-			}
-			decoded += value.slice(start, index + 1)
-			index += 1
-			continue
-		}
-		decoded += '&'
-		index = start + 1
-	}
-	return decoded
-}
+import { decodeEntities, lowercaseASCII } from './helpers.js'
+import { isHTMLCodePoint } from './validators.js'
 
 /**
  * Scan an attribute source segment into ordered, first-wins attributes.
  *
  * @param source - The part of a start tag after its name and before `>`
- * @returns Parsed attributes with lowercased names and decoded values
+ * @returns Parsed attributes with ASCII-lowercased names and decoded values
  */
 export function scanAttributes(source: string): readonly HTMLAttribute[] {
 	const attributes: HTMLAttribute[] = []
 	const names = new Set<string>()
 	let index = 0
 	while (index < source.length) {
-		while (index < source.length && /\s/.test(source[index] ?? '')) index += 1
+		while (index < source.length && HTML_WHITESPACE.includes(source[index] ?? '')) index += 1
 		if (index >= source.length || source[index] === '/') break
 		const start = index
 		while (
 			index < source.length &&
-			!/\s/.test(source[index] ?? '') &&
+			!HTML_WHITESPACE.includes(source[index] ?? '') &&
 			source[index] !== '=' &&
 			source[index] !== '/' &&
 			source[index] !== '"' &&
@@ -112,12 +50,12 @@ export function scanAttributes(source: string): readonly HTMLAttribute[] {
 			index += 1
 			continue
 		}
-		const name = source.slice(start, index).toLowerCase()
-		while (index < source.length && /\s/.test(source[index] ?? '')) index += 1
+		const name = lowercaseASCII(source.slice(start, index))
+		while (index < source.length && HTML_WHITESPACE.includes(source[index] ?? '')) index += 1
 		let value: string | undefined
 		if (source[index] === '=') {
 			index += 1
-			while (index < source.length && /\s/.test(source[index] ?? '')) index += 1
+			while (index < source.length && HTML_WHITESPACE.includes(source[index] ?? '')) index += 1
 			const quote = source[index]
 			if (quote === '"' || quote === "'") {
 				index += 1
@@ -131,7 +69,9 @@ export function scanAttributes(source: string): readonly HTMLAttribute[] {
 				}
 			} else {
 				const valueStart = index
-				while (index < source.length && !/\s/.test(source[index] ?? '')) index += 1
+				while (index < source.length && !HTML_WHITESPACE.includes(source[index] ?? '')) {
+					index += 1
+				}
 				if (index > valueStart) value = decodeEntities(source.slice(valueStart, index))
 			}
 		}
@@ -144,39 +84,155 @@ export function scanAttributes(source: string): readonly HTMLAttribute[] {
 }
 
 /**
+ * Parse one unambiguous start tag without recovery under the package's ASCII tag-name grammar.
+ *
+ * @param html - The exact HTML source
+ * @param offset - The UTF-16 offset of the opening `<`
+ * @returns The start tag and exact next offset, or `undefined` for malformed or incomplete source
+ */
+export function parseStartTag(html: string, offset: number): HTMLStartTag | undefined {
+	if (!Number.isInteger(offset) || offset < 0 || html[offset] !== '<') return undefined
+	let index = offset + 1
+	if (!/[A-Za-z]/.test(html[index] ?? '')) return undefined
+	const nameStart = index
+	while (index < html.length && /[A-Za-z0-9:-]/.test(html[index] ?? '')) index += 1
+	const name = lowercaseASCII(html.slice(nameStart, index))
+	const attributes: HTMLAttribute[] = []
+	const names = new Set<string>()
+	let separated = false
+	for (;;) {
+		const boundary = html[index]
+		if (boundary !== '>' && boundary !== '/' && !separated) {
+			if (boundary === undefined || !HTML_WHITESPACE.includes(boundary)) return undefined
+			while (html[index] !== undefined && HTML_WHITESPACE.includes(html[index] ?? '')) {
+				index += 1
+			}
+		}
+		separated = false
+		const following = html[index]
+		if (following === '>') return { name, attributes, slashed: false, next: index + 1 }
+		if (following === '/') {
+			return html[index + 1] === '>'
+				? { name, attributes, slashed: true, next: index + 2 }
+				: undefined
+		}
+		if (following === undefined) return undefined
+		const attributeStart = index
+		for (;;) {
+			const character = html[index]
+			if (
+				character === undefined ||
+				HTML_WHITESPACE.includes(character) ||
+				character === '=' ||
+				character === '/' ||
+				character === '>'
+			) {
+				break
+			}
+			const point = html.codePointAt(index)
+			if (character === '"' || character === "'" || character === '<' || !isHTMLCodePoint(point)) {
+				return undefined
+			}
+			index += point > 0xffff ? 2 : 1
+		}
+		if (index === attributeStart) return undefined
+		const attributeName = lowercaseASCII(html.slice(attributeStart, index))
+		if (names.has(attributeName)) return undefined
+		names.add(attributeName)
+		const attributeEnd = index
+		while (html[index] !== undefined && HTML_WHITESPACE.includes(html[index] ?? '')) index += 1
+		const spacing = index > attributeEnd
+		let value: string | undefined
+		if (html[index] === '=') {
+			index += 1
+			while (html[index] !== undefined && HTML_WHITESPACE.includes(html[index] ?? '')) index += 1
+			const quote = html[index]
+			if (quote === '"' || quote === "'") {
+				index += 1
+				const valueStart = index
+				for (;;) {
+					const character = html[index]
+					if (character === undefined) return undefined
+					if (character === quote) break
+					const point = html.codePointAt(index)
+					if (!isHTMLCodePoint(point)) return undefined
+					index += point > 0xffff ? 2 : 1
+				}
+				value = decodeEntities(html.slice(valueStart, index))
+				index += 1
+				const delimiter = html[index]
+				if (
+					delimiter !== '>' &&
+					delimiter !== '/' &&
+					(delimiter === undefined || !HTML_WHITESPACE.includes(delimiter))
+				) {
+					return undefined
+				}
+			} else {
+				const valueStart = index
+				for (;;) {
+					const character = html[index]
+					if (character === undefined) return undefined
+					if (character === '>' || HTML_WHITESPACE.includes(character)) break
+					const point = html.codePointAt(index)
+					if (
+						character === '"' ||
+						character === "'" ||
+						character === '<' ||
+						character === '=' ||
+						character === '`' ||
+						!isHTMLCodePoint(point)
+					) {
+						return undefined
+					}
+					index += point > 0xffff ? 2 : 1
+				}
+				if (index === valueStart) return undefined
+				value = decodeEntities(html.slice(valueStart, index))
+			}
+		}
+		attributes.push(value === undefined ? { name: attributeName } : { name: attributeName, value })
+		if (value === undefined && spacing) separated = true
+	}
+}
+
+/**
  * Scan one complete start or close tag.
  *
  * @param html - The normalized HTML source
  * @param offset - The offset of the opening `<`
  * @returns The tag and next offset, or `undefined` for an invalid or incomplete tag
  */
-export function scanTag(
-	html: string,
-	offset: number,
-):
-	| {
-			readonly name: string
-			readonly attributes: readonly HTMLAttribute[]
-			readonly closing: boolean
-			readonly next: number
-	  }
-	| undefined {
+export function scanTag(html: string, offset: number): HTMLTag | undefined {
 	if (html[offset] !== '<') return undefined
 	const closing = html[offset + 1] === '/'
+	if (!closing) {
+		const parsed = parseStartTag(html, offset)
+		if (parsed !== undefined) {
+			return {
+				name: parsed.name,
+				attributes: parsed.attributes,
+				closing: false,
+				next: parsed.next,
+			}
+		}
+	}
 	let index = offset + (closing ? 2 : 1)
 	if (!/[A-Za-z]/.test(html[index] ?? '')) return undefined
 	const nameStart = index
 	while (index < html.length && /[A-Za-z0-9:-]/.test(html[index] ?? '')) index += 1
-	const name = html.slice(nameStart, index).toLowerCase()
+	const name = lowercaseASCII(html.slice(nameStart, index))
 	const attributesStart = index
 	while (index < html.length) {
 		const character = html[index]
 		if (character === '>') {
 			let attributeSource = html.slice(attributesStart, index)
-			const trimmed = attributeSource.trimEnd()
+			let end = attributeSource.length
+			while (end > 0 && HTML_WHITESPACE.includes(attributeSource[end - 1] ?? '')) end -= 1
+			const trimmed = attributeSource.slice(0, end)
 			if (
 				trimmed.endsWith('/') &&
-				(trimmed.length === 1 || /\s/.test(trimmed[trimmed.length - 2] ?? ''))
+				(trimmed.length === 1 || HTML_WHITESPACE.includes(trimmed[trimmed.length - 2] ?? ''))
 			) {
 				attributeSource = trimmed.slice(0, -1)
 			}
@@ -275,9 +331,11 @@ export function scanDoctype(
 	html: string,
 	offset: number,
 ): { readonly node: DoctypeNode; readonly next: number } | undefined {
-	if (html.slice(offset, offset + 9).toLowerCase() !== '<!doctype') return undefined
+	if (lowercaseASCII(html.slice(offset, offset + 9)) !== '<!doctype') return undefined
 	const boundary = html[offset + 9]
-	if (boundary !== undefined && boundary !== '>' && !/\s/.test(boundary)) return undefined
+	if (boundary !== undefined && boundary !== '>' && !HTML_WHITESPACE.includes(boundary)) {
+		return undefined
+	}
 	let end = offset + 9
 	let doctypeQuote: string | undefined
 	while (end < html.length) {
@@ -294,16 +352,16 @@ export function scanDoctype(
 	if (end >= html.length || doctypeQuote !== undefined) return undefined
 	const body = html.slice(offset + 9, end)
 	let index = 0
-	while (index < body.length && /\s/.test(body[index] ?? '')) index += 1
+	while (index < body.length && HTML_WHITESPACE.includes(body[index] ?? '')) index += 1
 	const nameStart = index
-	while (index < body.length && !/\s/.test(body[index] ?? '')) index += 1
-	const name = body.slice(nameStart, index).toLowerCase()
+	while (index < body.length && !HTML_WHITESPACE.includes(body[index] ?? '')) index += 1
+	const name = lowercaseASCII(body.slice(nameStart, index))
 	if (name.length === 0) return undefined
-	while (index < body.length && /\s/.test(body[index] ?? '')) index += 1
+	while (index < body.length && HTML_WHITESPACE.includes(body[index] ?? '')) index += 1
 	const keywordStart = index
 	while (index < body.length && /[A-Za-z]/.test(body[index] ?? '')) index += 1
-	const keyword = body.slice(keywordStart, index).toLowerCase()
-	while (index < body.length && /\s/.test(body[index] ?? '')) index += 1
+	const keyword = lowercaseASCII(body.slice(keywordStart, index))
+	while (index < body.length && HTML_WHITESPACE.includes(body[index] ?? '')) index += 1
 	let publicIdentifier: string | undefined
 	let systemIdentifier: string | undefined
 	if (keyword === 'public') {
@@ -315,7 +373,7 @@ export function scanDoctype(
 			if (index < body.length) {
 				publicIdentifier = body.slice(identifierStart, index)
 				index += 1
-				while (index < body.length && /\s/.test(body[index] ?? '')) index += 1
+				while (index < body.length && HTML_WHITESPACE.includes(body[index] ?? '')) index += 1
 				const systemQuote = body[index]
 				if (systemQuote === '"' || systemQuote === "'") {
 					index += 1
@@ -358,17 +416,17 @@ export function scanRawText(
 	name: string,
 	entities = false,
 ): { readonly node: TextNode; readonly next: number; readonly closed: boolean } {
-	const marker = `</${name.toLowerCase()}`
+	const marker = `</${lowercaseASCII(name)}`
 	let search = offset
 	while (search < html.length) {
 		const candidate = html.indexOf('<', search)
 		if (candidate < 0) break
-		if (html.slice(candidate, candidate + marker.length).toLowerCase() !== marker) {
+		if (lowercaseASCII(html.slice(candidate, candidate + marker.length)) !== marker) {
 			search = candidate + 1
 			continue
 		}
 		const boundary = html[candidate + marker.length]
-		if (boundary === '>' || (boundary !== undefined && /\s/.test(boundary))) {
+		if (boundary === '>' || (boundary !== undefined && HTML_WHITESPACE.includes(boundary))) {
 			const end = html.indexOf('>', candidate + marker.length)
 			if (end < 0) break
 			const value = html.slice(offset, candidate)
@@ -422,7 +480,7 @@ export function parseDocument(html: string): HTMLDocument {
 				continue
 			}
 		}
-		if (source.slice(index, index + 9).toLowerCase() === '<!doctype') {
+		if (lowercaseASCII(source.slice(index, index + 9)) === '<!doctype') {
 			const doctype = scanDoctype(source, index)
 			if (doctype !== undefined) {
 				parent.children.push(doctype.node)

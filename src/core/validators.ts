@@ -12,6 +12,7 @@ import {
 	arrayOf,
 	attempt,
 	isArray,
+	isInteger,
 	isRecord,
 	isString,
 	literalOf,
@@ -19,6 +20,7 @@ import {
 } from '@orkestrel/contract'
 import {
 	BLOCK_ELEMENTS,
+	HTML_WHITESPACE,
 	LITERAL_ELEMENTS,
 	MAX_DEPTH,
 	RAW_ELEMENTS,
@@ -26,6 +28,23 @@ import {
 	VOID_ELEMENTS,
 } from './constants.js'
 import { sanitizeURL } from './helpers.js'
+
+/**
+ * Determine whether a code point may appear in an unambiguous HTML source token.
+ *
+ * @param value - The value to inspect
+ * @returns `true` for a Unicode scalar outside HTML's control and noncharacter parse-error ranges
+ */
+export function isHTMLCodePoint(value: unknown): value is number {
+	if (!isInteger(value) || value < 0 || value > 0x10ffff) return false
+	if (value <= 0x1f) return HTML_WHITESPACE.includes(String.fromCodePoint(value))
+	return (
+		!(value >= 0x7f && value <= 0x9f) &&
+		!(value >= 0xd800 && value <= 0xdfff) &&
+		!(value >= 0xfdd0 && value <= 0xfdef) &&
+		(value & 0xffff) < 0xfffe
+	)
+}
 
 /**
  * Determine whether an arbitrary value is a structurally valid HTML attribute.

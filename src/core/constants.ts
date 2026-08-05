@@ -1,3 +1,6 @@
+/** The five code points HTML treats as syntax whitespace. */
+export const HTML_WHITESPACE = ' \t\n\f\r'
+
 /**
  * The elements that cannot have children - a start tag is the whole element and a close
  * tag for one is discarded. Voidness is looked up here rather than stored on

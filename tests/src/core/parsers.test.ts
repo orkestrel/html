@@ -1,10 +1,9 @@
-import type { ElementNode, HTMLDocument } from '@src/core'
+import type { ElementNode, HTMLDocument, HTMLStartTag } from '@src/core'
 import {
 	MAX_DEPTH,
-	NAMED_ENTITIES,
-	decodeEntities,
 	isHTMLDocument,
 	parseDocument,
+	parseStartTag,
 	renderHTML,
 	scanAttributes,
 	scanComment,
@@ -26,111 +25,6 @@ import {
 } from '../../setup.js'
 
 describe('scanning pieces', () => {
-	it('decodeEntities decodes decimal, hexadecimal, invalid-scalar, and named references', () => {
-		expect(decodeEntities('&#65; &#x1F600;')).toBe('A 😀')
-		expect(decodeEntities('&#0; &#xD800; &#1114112;')).toBe('\uFFFD \uFFFD \uFFFD')
-		expect(decodeEntities('&amp; &copy; &Alpha; &nbsp;')).toBe('& © Α \u00A0')
-		expect(decodeEntities('&unknown; &amp')).toBe('&unknown; &amp')
-	})
-
-	it('decodes every semicolon-terminated WHATWG named entity exactly', () => {
-		expect(Object.isFrozen(NAMED_ENTITIES)).toBe(true)
-		expect(Object.keys(NAMED_ENTITIES)).toHaveLength(2_125)
-		for (const [name, value] of Object.entries(NAMED_ENTITIES)) {
-			expect({ name, decoded: decodeEntities(`&${name};`) }).toEqual({ name, decoded: value })
-		}
-	})
-
-	it('decodes multi-codepoint values and digit-bearing names', () => {
-		expect(decodeEntities('&fjlig;&NotEqualTilde;&ThickSpace;&race;')).toBe(
-			'fj\u2242\u0338\u205F\u200A\u223D\u0331',
-		)
-		expect(decodeEntities('&frac12;&sup1;&blk12;')).toBe('\u00BD\u00B9\u2592')
-	})
-
-	it('keeps unknown, wrong-case, prototype-like, and unterminated names literal', () => {
-		const literal = [
-			'&definitelyUnknown;',
-			'&aMp;',
-			'&constructor;',
-			'&__proto__;',
-			'&hasOwnProperty;',
-			'&copy',
-			'&NotEqualTilde',
-			'&frac12',
-		].join('|')
-		expect(decodeEntities(literal)).toBe(literal)
-	})
-
-	it('audits every security-relevant generated entity value against the reviewed set', () => {
-		const controls: string[] = []
-		const punctuation: string[] = []
-		for (const [name, value] of Object.entries(NAMED_ENTITIES)) {
-			if (
-				[...value].some((character) => {
-					const point = character.codePointAt(0)
-					return point !== undefined && (point <= 0x1f || point === 0x7f || character === '&')
-				})
-			) {
-				controls.push(name)
-			}
-			if (value === ':' || value === '/' || value === '\\') punctuation.push(name)
-		}
-		expect(controls).toEqual(['AMP', 'NewLine', 'Tab', 'amp'])
-		expect(punctuation).toEqual(['bsol', 'colon', 'sol'])
-	})
-
-	it('preserves the AST roundtrip law across every entity parsing context', () => {
-		const references = Object.keys(NAMED_ENTITIES).map((name) => `&${name};`)
-		const text = parseDocument(references.join('|'))
-		const literal = parseDocument(
-			`<title>${references.join('|')}</title><textarea>${references.join('|')}</textarea>`,
-		)
-		const attributes = parseDocument(
-			references.map((reference) => `<p title="${reference}"></p>`).join(''),
-		)
-		for (const document of [text, literal, attributes]) {
-			expect(parseDocument(renderHTML(document))).toEqual(document)
-		}
-	})
-
-	it('scales linearly for recognized, enormous unknown, and nested entity inputs', () => {
-		expect(Object.keys(NAMED_ENTITIES)).toHaveLength(2_125)
-		decodeEntities('&NotEqualTilde;'.repeat(1_000))
-
-		const recognizedSmall = '&NotEqualTilde;'.repeat(40_000)
-		const recognizedLarge = '&NotEqualTilde;'.repeat(80_000)
-		const recognizedSmallStart = performance.now()
-		decodeEntities(recognizedSmall)
-		const recognizedSmallElapsed = performance.now() - recognizedSmallStart
-		const recognizedLargeStart = performance.now()
-		decodeEntities(recognizedLarge)
-		const recognizedLargeElapsed = performance.now() - recognizedLargeStart
-
-		const unknownSmall = `&${'unknown'.repeat(30_000)};`
-		const unknownLarge = `&${'unknown'.repeat(60_000)};`
-		const unknownSmallStart = performance.now()
-		expect(decodeEntities(unknownSmall)).toBe(unknownSmall)
-		const unknownSmallElapsed = performance.now() - unknownSmallStart
-		const unknownLargeStart = performance.now()
-		expect(decodeEntities(unknownLarge)).toBe(unknownLarge)
-		const unknownLargeElapsed = performance.now() - unknownLargeStart
-
-		const nestedSmall = '&amp;amp;'.repeat(40_000)
-		const nestedLarge = '&amp;amp;'.repeat(80_000)
-		const nestedSmallStart = performance.now()
-		decodeEntities(nestedSmall)
-		const nestedSmallElapsed = performance.now() - nestedSmallStart
-		const nestedLargeStart = performance.now()
-		decodeEntities(nestedLarge)
-		const nestedLargeElapsed = performance.now() - nestedLargeStart
-
-		expect(recognizedLargeElapsed).toBeLessThan(recognizedSmallElapsed * 3 + 50)
-		expect(unknownLargeElapsed).toBeLessThan(unknownSmallElapsed * 3 + 50)
-		expect(nestedLargeElapsed).toBeLessThan(nestedSmallElapsed * 3 + 50)
-		expect(recognizedLargeElapsed + unknownLargeElapsed + nestedLargeElapsed).toBeLessThan(1_500)
-	})
-
 	it('scanAttributes handles quoted, unquoted, minimized, duplicate, and hostile names', () => {
 		expect(
 			scanAttributes(' ID="first" id=second disabled empty="" title=\'a &amp; b\' __proto__=safe'),
@@ -161,6 +55,17 @@ describe('scanning pieces', () => {
 			next: 8,
 		})
 		expect(scanTag('<div', 0)).toBeUndefined()
+	})
+
+	it('uses one ASCII-folding and HTML-whitespace grammar across recovery paths', () => {
+		expect(scanTag('<p Ω=one>', 0)?.attributes).toEqual([{ name: 'Ω', value: 'one' }])
+		expect(scanTag('<p Ω=one Ω=two>', 0)?.attributes).toEqual([{ name: 'Ω', value: 'one' }])
+		expect(scanTag('<p lang=en\u00a0>', 0)?.attributes).toEqual([
+			{ name: 'lang', value: 'en\u00a0' },
+		])
+		expect(scanTag('<p a\u00a0b=c a\u00a0b=d>', 0)?.attributes).toEqual([
+			{ name: 'a\u00a0b', value: 'c' },
+		])
 	})
 
 	it('scanComment handles standard, bogus, CDATA, and unterminated comments', () => {
@@ -233,6 +138,182 @@ describe('scanning pieces', () => {
 			next: 12,
 			closed: false,
 		})
+	})
+})
+
+describe('strict start tag parsing', () => {
+	it('returns exact source boundaries for unambiguous start tags', () => {
+		const source = 'x<HTML lang="en" data-note="a>b">tail'
+		const next = source.indexOf('>tail') + 1
+		const parsed: HTMLStartTag | undefined = parseStartTag(source, 1)
+
+		expect(parsed).toEqual({
+			name: 'html',
+			attributes: [
+				{ name: 'lang', value: 'en' },
+				{ name: 'data-note', value: 'a>b' },
+			],
+			slashed: false,
+			next,
+		})
+		expect(source.slice(1, parsed?.next)).toBe('<HTML lang="en" data-note="a>b">')
+	})
+
+	it('preserves valueless, empty, quoted, unquoted, and decoded attribute values', () => {
+		const source = '<html data-empty="" disabled lang=en data-note=\'a>b\' data-code="&gt;">'
+
+		expect(parseStartTag(source, 0)).toEqual({
+			name: 'html',
+			attributes: [
+				{ name: 'data-empty', value: '' },
+				{ name: 'disabled' },
+				{ name: 'lang', value: 'en' },
+				{ name: 'data-note', value: 'a>b' },
+				{ name: 'data-code', value: '>' },
+			],
+			slashed: false,
+			next: source.length,
+		})
+	})
+
+	it('accepts HTML whitespace and reports the trailing solidus without inventing semantics', () => {
+		const spaced = '<html\tlang="en"\rdata-note=\'a>b\'\n>'
+
+		expect(parseStartTag(spaced, 0)).toEqual({
+			name: 'html',
+			attributes: [
+				{ name: 'lang', value: 'en' },
+				{ name: 'data-note', value: 'a>b' },
+			],
+			slashed: false,
+			next: spaced.length,
+		})
+		expect(parseStartTag('<html/>', 0)).toEqual({
+			name: 'html',
+			attributes: [],
+			slashed: true,
+			next: 7,
+		})
+		expect(parseStartTag('<html disabled/>', 0)).toEqual({
+			name: 'html',
+			attributes: [{ name: 'disabled' }],
+			slashed: true,
+			next: 16,
+		})
+		expect(parseStartTag('<html lang=en/>', 0)).toEqual({
+			name: 'html',
+			attributes: [{ name: 'lang', value: 'en/' }],
+			slashed: false,
+			next: 15,
+		})
+	})
+
+	it('tracks UTF-16 offsets exactly', () => {
+		const source = '😀<html data-note="ok">'
+		const offset = source.indexOf('<')
+
+		expect(parseStartTag(source, offset)?.next).toBe(source.length)
+		expect(source.slice(offset, parseStartTag(source, offset)?.next)).toBe('<html data-note="ok">')
+	})
+
+	it('folds only ASCII attribute-name case and preserves distinct Unicode names', () => {
+		const source = '<html DATA-X=one İ=two Ω=three ω=four>'
+
+		expect(parseStartTag(source, 0)).toEqual({
+			name: 'html',
+			attributes: [
+				{ name: 'data-x', value: 'one' },
+				{ name: 'İ', value: 'two' },
+				{ name: 'Ω', value: 'three' },
+				{ name: 'ω', value: 'four' },
+			],
+			slashed: false,
+			next: source.length,
+		})
+	})
+
+	it('accepts Unicode scalar values and refuses surrogates and noncharacters', () => {
+		const valid = '<html 😀="🦅" data=🦅>'
+		const rejected = [
+			'<html \ud800=x>',
+			'<html \udfff=x>',
+			'<html data="\ud800">',
+			'<html data="\udfff">',
+			'<html data=\ud800>',
+			'<html data=\udfff>',
+			'<html data="\u{1fffe}">',
+		]
+
+		expect(parseStartTag(valid, 0)).toEqual({
+			name: 'html',
+			attributes: [
+				{ name: '😀', value: '🦅' },
+				{ name: 'data', value: '🦅' },
+			],
+			slashed: false,
+			next: valid.length,
+		})
+		for (const source of rejected) expect(parseStartTag(source, 0)).toBeUndefined()
+	})
+
+	it('refuses malformed, ambiguous, duplicated, closing, and incomplete source', () => {
+		const rejected = [
+			'<html',
+			'</html>',
+			'< html>',
+			'<1html>',
+			'<html data=>',
+			'<html data="unterminated>',
+			"<html data='unterminated>",
+			'<html data="ok"x>',
+			'<html data=one=two>',
+			'<html data<bad>',
+			'<html data"bad>',
+			'<html data=`bad`>',
+			'<x-élément>',
+			'<html data="ok"data-next="bad">',
+			'<html id=first ID=second>',
+			'<html data=\0>',
+			'<html / >',
+			'<html/ >',
+			'<html\u00a0lang="en">',
+			'<html\vlang="en">',
+		]
+
+		for (const source of rejected) expect(parseStartTag(source, 0)).toBeUndefined()
+	})
+
+	it('refuses every invalid source offset', () => {
+		const source = '<html>'
+		const offsets = [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, source.length]
+
+		for (const offset of offsets) expect(parseStartTag(source, offset)).toBeUndefined()
+	})
+
+	it('leaves total scanner and document recovery unchanged', () => {
+		const source = '<div disabled title="oops><p>safe</p>'
+
+		expect(parseStartTag(source, 0)).toBeUndefined()
+		expect(scanTag(source, 0)).toEqual({
+			name: 'div',
+			attributes: [{ name: 'disabled' }, { name: 'title' }],
+			closing: false,
+			next: 26,
+		})
+		expect(renderHTML(parseDocument(source))).toBe('<div disabled title><p>safe</p></div>')
+	})
+
+	it('handles large valid and unterminated quoted inputs', () => {
+		const attributes = Array.from(
+			{ length: 10_000 },
+			(_, index) => ` data-${index}="${index}>value"`,
+		).join('')
+		const valid = `<html${attributes}>`
+		const unterminated = `<html data-note="${'>'.repeat(100_000)}`
+
+		expect(parseStartTag(valid, 0)?.attributes).toHaveLength(10_000)
+		expect(parseStartTag(valid, 0)?.next).toBe(valid.length)
+		expect(parseStartTag(unterminated, 0)).toBeUndefined()
 	})
 })
 

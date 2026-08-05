@@ -7,11 +7,13 @@ import {
 	attributeOf,
 	collapseSpace,
 	collapseText,
+	decodeEntities,
 	encodeAttribute,
 	encodeText,
 	extractRegion,
 	foldNode,
 	isSafeURL,
+	lowercaseASCII,
 	mergeText,
 	parseDocument,
 	pruneDocument,
@@ -39,6 +41,115 @@ import {
 } from '../../setup.js'
 
 describe('HTML escaping and URL helpers', () => {
+	it('lowercaseASCII folds only ASCII uppercase characters', () => {
+		expect(lowercaseASCII('HTML-İ-Ω-ω')).toBe('html-İ-Ω-ω')
+	})
+
+	it('decodeEntities decodes decimal, hexadecimal, invalid-scalar, and named references', () => {
+		expect(decodeEntities('&#65; &#x1F600;')).toBe('A 😀')
+		expect(decodeEntities('&#0; &#xD800; &#1114112;')).toBe('\uFFFD \uFFFD \uFFFD')
+		expect(decodeEntities('&amp; &copy; &Alpha; &nbsp;')).toBe('& © Α \u00A0')
+		expect(decodeEntities('&unknown; &amp')).toBe('&unknown; &amp')
+	})
+
+	it('decodes every semicolon-terminated WHATWG named entity exactly', () => {
+		expect(Object.isFrozen(NAMED_ENTITIES)).toBe(true)
+		expect(Object.keys(NAMED_ENTITIES)).toHaveLength(2_125)
+		for (const [name, value] of Object.entries(NAMED_ENTITIES)) {
+			expect({ name, decoded: decodeEntities(`&${name};`) }).toEqual({ name, decoded: value })
+		}
+	})
+
+	it('decodes multi-codepoint values and digit-bearing names', () => {
+		expect(decodeEntities('&fjlig;&NotEqualTilde;&ThickSpace;&race;')).toBe(
+			'fj\u2242\u0338\u205F\u200A\u223D\u0331',
+		)
+		expect(decodeEntities('&frac12;&sup1;&blk12;')).toBe('\u00BD\u00B9\u2592')
+	})
+
+	it('keeps unknown, wrong-case, prototype-like, and unterminated names literal', () => {
+		const literal = [
+			'&definitelyUnknown;',
+			'&aMp;',
+			'&constructor;',
+			'&__proto__;',
+			'&hasOwnProperty;',
+			'&copy',
+			'&NotEqualTilde',
+			'&frac12',
+		].join('|')
+		expect(decodeEntities(literal)).toBe(literal)
+	})
+
+	it('audits every security-relevant generated entity value against the reviewed set', () => {
+		const controls: string[] = []
+		const punctuation: string[] = []
+		for (const [name, value] of Object.entries(NAMED_ENTITIES)) {
+			if (
+				[...value].some((character) => {
+					const point = character.codePointAt(0)
+					return point !== undefined && (point <= 0x1f || point === 0x7f || character === '&')
+				})
+			) {
+				controls.push(name)
+			}
+			if (value === ':' || value === '/' || value === '\\') punctuation.push(name)
+		}
+		expect(controls).toEqual(['AMP', 'NewLine', 'Tab', 'amp'])
+		expect(punctuation).toEqual(['bsol', 'colon', 'sol'])
+	})
+
+	it('preserves the AST roundtrip law across every entity parsing context', () => {
+		const references = Object.keys(NAMED_ENTITIES).map((name) => `&${name};`)
+		const text = parseDocument(references.join('|'))
+		const literal = parseDocument(
+			`<title>${references.join('|')}</title><textarea>${references.join('|')}</textarea>`,
+		)
+		const attributes = parseDocument(
+			references.map((reference) => `<p title="${reference}"></p>`).join(''),
+		)
+		for (const document of [text, literal, attributes]) {
+			expect(parseDocument(renderHTML(document))).toEqual(document)
+		}
+	})
+
+	it('stays subquadratic under recognized, unknown, and nested entity pressure', () => {
+		expect(Object.keys(NAMED_ENTITIES)).toHaveLength(2_125)
+		decodeEntities('&NotEqualTilde;'.repeat(1_000))
+
+		const recognizedSmall = '&NotEqualTilde;'.repeat(40_000)
+		const recognizedLarge = '&NotEqualTilde;'.repeat(80_000)
+		const recognizedSmallStart = performance.now()
+		decodeEntities(recognizedSmall)
+		const recognizedSmallElapsed = performance.now() - recognizedSmallStart
+		const recognizedLargeStart = performance.now()
+		decodeEntities(recognizedLarge)
+		const recognizedLargeElapsed = performance.now() - recognizedLargeStart
+
+		const unknownSmall = `&${'unknown'.repeat(30_000)};`
+		const unknownLarge = `&${'unknown'.repeat(60_000)};`
+		const unknownSmallStart = performance.now()
+		expect(decodeEntities(unknownSmall)).toBe(unknownSmall)
+		const unknownSmallElapsed = performance.now() - unknownSmallStart
+		const unknownLargeStart = performance.now()
+		expect(decodeEntities(unknownLarge)).toBe(unknownLarge)
+		const unknownLargeElapsed = performance.now() - unknownLargeStart
+
+		const nestedSmall = '&amp;amp;'.repeat(40_000)
+		const nestedLarge = '&amp;amp;'.repeat(80_000)
+		const nestedSmallStart = performance.now()
+		decodeEntities(nestedSmall)
+		const nestedSmallElapsed = performance.now() - nestedSmallStart
+		const nestedLargeStart = performance.now()
+		decodeEntities(nestedLarge)
+		const nestedLargeElapsed = performance.now() - nestedLargeStart
+
+		expect(recognizedLargeElapsed).toBeLessThan(recognizedSmallElapsed * 3 + 50)
+		expect(unknownLargeElapsed).toBeLessThan(unknownSmallElapsed * 3 + 50)
+		expect(nestedLargeElapsed).toBeLessThan(nestedSmallElapsed * 3 + 50)
+		expect(recognizedLargeElapsed + unknownLargeElapsed + nestedLargeElapsed).toBeLessThan(1_500)
+	})
+
 	it('encodes HTML text minimally', () => {
 		expect(encodeText('&<>"\'')).toBe('&amp;&lt;&gt;"\'')
 	})

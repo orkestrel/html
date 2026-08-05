@@ -10,13 +10,89 @@ import type {
 import {
 	BLOCK_ELEMENTS,
 	MAX_DEPTH,
+	NAMED_ENTITIES,
 	RAW_ELEMENTS,
 	TABLE_ALIGNMENTS,
 	TABLE_CELL_ELEMENTS,
 	URL_ATTRIBUTES,
 	VOID_ELEMENTS,
 } from './constants.js'
-import { decodeEntities } from './parsers.js'
+
+/**
+ * Lowercase only ASCII uppercase characters, preserving every other code point exactly.
+ *
+ * @param value - The source value
+ * @returns The value with `A` through `Z` lowercased
+ */
+export function lowercaseASCII(value: string): string {
+	return value.replace(/[A-Z]/g, (character) => character.toLowerCase())
+}
+
+/**
+ * Decode numeric and semicolon-terminated WHATWG named character references in a string.
+ *
+ * @param value - The source text or attribute value
+ * @returns The decoded value, retaining unknown named references literally
+ */
+export function decodeEntities(value: string): string {
+	let decoded = ''
+	let index = 0
+	while (index < value.length) {
+		if (value[index] !== '&') {
+			decoded += value[index] ?? ''
+			index += 1
+			continue
+		}
+		const start = index
+		index += 1
+		if (value[index] === '#') {
+			index += 1
+			let radix = 10
+			if (value[index] === 'x' || value[index] === 'X') {
+				radix = 16
+				index += 1
+			}
+			const digits = index
+			while (
+				index < value.length &&
+				(radix === 16 ? /[0-9A-Fa-f]/.test(value[index] ?? '') : /[0-9]/.test(value[index] ?? ''))
+			) {
+				index += 1
+			}
+			if (index > digits && value[index] === ';') {
+				const scalar = Number.parseInt(value.slice(digits, index), radix)
+				decoded +=
+					Number.isFinite(scalar) &&
+					scalar > 0 &&
+					scalar <= 0x10ffff &&
+					!(scalar >= 0xd800 && scalar <= 0xdfff)
+						? String.fromCodePoint(scalar)
+						: '\uFFFD'
+				index += 1
+				continue
+			}
+			decoded += value.slice(start, index)
+			continue
+		}
+		const name = index
+		while (index < value.length && /[A-Za-z0-9]/.test(value[index] ?? '')) index += 1
+		if (index > name && value[index] === ';') {
+			const key = value.slice(name, index)
+			const entity = Object.hasOwn(NAMED_ENTITIES, key) ? NAMED_ENTITIES[key] : undefined
+			if (entity !== undefined) {
+				decoded += entity
+				index += 1
+				continue
+			}
+			decoded += value.slice(start, index + 1)
+			index += 1
+			continue
+		}
+		decoded += '&'
+		index = start + 1
+	}
+	return decoded
+}
 
 /**
  * Encode the characters that have markup meaning in HTML text.

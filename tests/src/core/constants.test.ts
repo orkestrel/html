@@ -3,6 +3,7 @@ import {
 	BOILERPLATE_ELEMENTS,
 	CONTENT_ELEMENTS,
 	HTML,
+	HTML_WHITESPACE,
 	IMPLIED_CLOSERS,
 	LITERAL_ELEMENTS,
 	NAMED_ENTITIES,
@@ -81,6 +82,10 @@ export function restoreCollectionMutation(mutation: CollectionMutation): void {
 }
 
 describe('behavioral collection invariants', () => {
+	it('defines exactly the five HTML ASCII whitespace characters', () => {
+		expect([...HTML_WHITESPACE]).toEqual([' ', '\t', '\n', '\f', '\r'])
+	})
+
 	it('keeps every exported behavioral collection immutable after direct mutation attempts', () => {
 		const mutations: readonly CollectionMutation[] = [
 			{

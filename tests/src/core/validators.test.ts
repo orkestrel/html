@@ -7,6 +7,7 @@ import {
 	isElementNode,
 	isEmptyElement,
 	isHTMLAttribute,
+	isHTMLCodePoint,
 	isHTMLDocument,
 	isHTMLNode,
 	isLiteralElement,
@@ -27,6 +28,16 @@ import {
 } from '../../setup.js'
 
 describe('from-unknown leaf guards', () => {
+	it('accepts HTML source code points and refuses parse-error ranges', () => {
+		for (const point of [0x09, 0x0a, 0x0c, 0x0d, 0x20, 0x7e, 0xa0, 0x1f600]) {
+			expect(isHTMLCodePoint(point)).toBe(true)
+		}
+		for (const point of [-1, 0, 0x0b, 0x1f, 0x7f, 0x9f, 0xd800, 0xdfff, 0xfdd0, 0x1fffe]) {
+			expect(isHTMLCodePoint(point)).toBe(false)
+		}
+		expect(isHTMLCodePoint('32')).toBe(false)
+	})
+
 	it('accepts exact attributes and preserves absent versus empty values', () => {
 		expect(isHTMLAttribute({ name: 'disabled' })).toBe(true)
 		expect(isHTMLAttribute({ name: 'title', value: '' })).toBe(true)

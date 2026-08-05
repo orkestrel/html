@@ -42,6 +42,20 @@ renderHTML(article.document) // '<h1>Title</h1><p>Read the <a href="https://x.de
 renderText(article.document) // 'Title\nRead the guide.'
 ```
 
+For a fail-closed source boundary instead of document recovery, use `parseStartTag`. It retains the
+package's narrow ASCII tag-name grammar and returns an exact UTF-16 end offset:
+
+```ts
+import { parseStartTag } from '@orkestrel/html'
+
+parseStartTag('<html lang="en" data-note="a>b">', 0)
+// { name: 'html', attributes: [{ name: 'lang', value: 'en' }, { name: 'data-note', value: 'a>b' }], slashed: false, next: 32 }
+parseStartTag('<html data-note="unterminated>', 0) // undefined
+```
+
+`slashed` reports a trailing solidus only when it is outside an attribute value; it does not make
+an HTML element semantically self-closing.
+
 `renderText` is flat but structural: tabs preserve table cells, newlines preserve table rows and
 block boundaries, and whitespace beneath `pre` remains verbatim. Heading levels, link destinations,
 list markers and ordinals, nesting depth, and image `alt` attributes do not survive. Read the
