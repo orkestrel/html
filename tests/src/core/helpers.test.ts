@@ -786,10 +786,8 @@ describe('AST walkers', () => {
 		if (div?.category !== 'element') throw new Error('expected div')
 		const first = div.children[0]
 		const second = div.children[1]
-		const rewritten = rewriteDocument(
-			document,
-			(node): HTMLNode =>
-				node.category === 'text' && node.value === 'x' ? { category: 'text', value: 'X' } : node,
+		const rewritten = rewriteDocument(document, (node): HTMLNode =>
+			node.category === 'text' && node.value === 'x' ? { category: 'text', value: 'X' } : node,
 		)
 		const rewrittenDiv = rewritten.children[0]
 		if (rewrittenDiv?.category !== 'element') throw new Error('expected rewritten div')

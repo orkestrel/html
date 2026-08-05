@@ -30,6 +30,9 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
+      - name: Install Playwright browsers
+        run: npx --no-install playwright install --with-deps chromium
+
       - name: Check formatting
         run: npm run format:check
 
@@ -44,3 +47,6 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Run live consumer integration
+        run: npm run test:integration
