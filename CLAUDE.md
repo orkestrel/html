@@ -200,13 +200,34 @@ Workflow failures use the same ladder; do not absorb their raw logs into the mai
   writing nodes — never two concurrent writers in the tree.
 - Every node names a role and its engine.
 
+Every dispatch is a file before it is a launch:
+
+- The brief is written to a file under `tmp/`, named for its unit, before the unit is
+  launched, whatever engine executes it. A brief composed only inside a launch argument
+  cannot be corrected, resumed, or re-run once that call ends.
+- The unit's returned report is captured to a file beside its brief under the same unit name,
+  so a unit's instruction and its outcome are one pair on disk.
+- A re-run amends its brief instead of restating it: a mid-campaign correction produces a
+  successor file recording what changed and why, and the original stays. A fix round's brief
+  names the findings it carries and where each came from.
+- Brief and report files are unit evidence, not deliverables. They are never committed, and
+  they are swept when the campaign that produced them is accepted.
+- Anything in a brief or a report that must outlive the campaign is promoted into a durable
+  artifact — a commit message, a guide, a rule, a retrospective — before the sweep. What is
+  only in a swept file did not survive.
+
 Every dispatch contains:
 
 - **Role/engine** — named role and explicit engine.
 - **Objective** — one concrete outcome.
 - **Context** — the evidence slice, paths, decisions, `AGENTS.md`, applicable rules, the
   skill name and required references (or explicit none), and the guide/spec.
+- **Unknowns** — what the Orchestrator does not yet know that the unit needs, named as
+  unknown, with how the unit reports back on it. A brief that cannot be fully specified says
+  so instead of shipping a guess the executor would have to invent an answer around.
 - **Scope** — owned files, shared and off-limits files, allowed tools, permission limits.
+- **Execution** — the executor performs the assignment directly and spawns nothing. Every
+  brief states it; an executor deep in a task does not re-read this contract.
 - **Output** — the exact distilled return shape; no process diary.
 - **Deviation contract** — required stop/report behaviour for writers.
 - **Acceptance criteria** — independently checkable completion conditions.
@@ -232,22 +253,20 @@ Four bench laws apply to every external engine:
   transport where one exists. Long-running work — audits, implementation units, anything
   multi-minute — uses the journaled CLI and never MCP: an interrupted MCP call loses its
   session invisibly, while a journal survives any client-side failure.
-- **Journal first.** Every bench invocation leaves a tailable on-disk record under
-  `tmp/<bench>/` (`tmp/codex/`, `tmp/cursor/`): the brief as a file, the event stream or
-  output log, and the final answer. Every long exec also carries exactly one Monitor on its
-  journal — a filtered tail that emits milestones (commands run, files changed, agent
-  messages, terminal states) and never the raw event firehose — so progress arrives in the
-  conversation while the journal stays tailable for depth. The filter exits on the exec's
-  terminal event, so the monitor's lifecycle matches the exec's and no watcher outlives its
-  subject. The journal's mtime is the liveness signal; the session id in the journal head is
-  the recovery handle. Briefs never travel as fragile shell arguments.
+- **Journal first.** Every bench invocation leaves a tailable on-disk record beside its brief
+  under `tmp/<bench>/` (`tmp/codex/`, `tmp/cursor/`): the event stream or output log and the
+  final answer. Every long exec also carries exactly one Monitor on its journal — a filtered
+  tail that emits milestones (commands run, files changed, agent messages, terminal states)
+  and never the raw event firehose — so progress arrives in the conversation while the
+  journal stays tailable for depth. The filter exits on the exec's terminal event, so the
+  monitor's lifecycle matches the exec's and no watcher outlives its subject. The journal's
+  mtime is the liveness signal; the session id in the journal head is the recovery handle.
 - **Tracked, never loose.** Every bench unit is registered in the session task registry at
   launch — subject, journal path, session id — and completed there at acceptance, so "what is
   running" always has a first-class answer instead of a recollection of a command.
-- **Ephemeral journals.** Everything under `tmp/` is unit evidence, never committed. Bridges
-  never delete journals; the Orchestrator sweeps `tmp/codex/` and `tmp/cursor/` once at
-  campaign acceptance, after the final gate evidence is recorded. A journal surviving past
-  its campaign is residue.
+- **Ephemeral journals.** Bridges never delete journals; the Orchestrator sweeps them with
+  the campaign's other unit evidence at acceptance, after the final gate evidence is
+  recorded. A journal surviving past its campaign is residue.
 
 Every long bench exec is launched by the Orchestrator as a harness-tracked background command
 under a hard time cap, never detached from inside a bridge agent: the harness owns the
@@ -263,12 +282,12 @@ unit.
 ### Cursor Grok
 
 - Reached only through the `grok` role, in ask mode:
-  `<agent-cli> -p --trust --mode=ask --model "$CURSOR_GROK_MODEL" "<brief>" | tee tmp/cursor/<unit>.log`.
+  `<agent-cli> -p --trust --mode=ask --model "$CURSOR_GROK_MODEL" "<prompt>" | tee tmp/cursor/<unit>.log`.
   `<agent-cli>` resolves as bare `agent`, then `agent.cmd` (Windows installs ship only
   `.cmd`/`.ps1` shims, so bare `agent` does not resolve in Bash), then
-  `"$LOCALAPPDATA/cursor-agent/agent.cmd"` — verified with `--version` before first use. Long
-  briefs are written to `tmp/cursor/<unit>-brief.md` and the prompt points at the file. The
-  tee'd log is the bench's journal.
+  `"$LOCALAPPDATA/cursor-agent/agent.cmd"` — verified with `--version` before first use. The
+  prompt points at the unit's brief file, `tmp/cursor/<unit>-brief.md`. The tee'd log is the
+  bench's journal.
 - A long ask-mode run obeys the same launch, stream, and ledger discipline as a Codex exec:
   the Orchestrator starts it as a harness-tracked background command under a time cap,
   registers the unit in the task registry, and arms one Monitor on the tee'd log for
