@@ -1,6 +1,6 @@
 {
 	"name": "@orkestrel/html",
-	"version": "0.0.2",
+	"version": "0.0.3",
 	"description": "A typed HTML AST: total parsing, canonical rendering, sanitizing against a fixed floor, and distilling a page to the content a language model should read.",
 	"keywords": [
 		"ast",
@@ -67,7 +67,7 @@
 		"prepublishOnly": "npm run format:check && npm run lint:check && npm run check && npm run build && npm test"
 	},
 	"dependencies": {
-		"@orkestrel/contract": "^0.0.10"
+		"@orkestrel/contract": "^0.0.11"
 	},
 	"devDependencies": {
 		"@microsoft/api-extractor": "^7.58.12",
