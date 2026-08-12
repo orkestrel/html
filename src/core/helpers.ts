@@ -1,4 +1,6 @@
 import type {
+	CommentNode,
+	DoctypeNode,
 	ElementNode,
 	HTMLAttribute,
 	HTMLDocument,
@@ -6,9 +8,13 @@ import type {
 	HTMLNode,
 	HTMLPruneHandler,
 	HTMLRewriteHandler,
+	HTMLStartTag,
+	HTMLTag,
+	TextNode,
 } from './types.js'
 import {
 	BLOCK_ELEMENTS,
+	HTML_WHITESPACE,
 	MAX_DEPTH,
 	NAMED_ENTITIES,
 	RAW_ELEMENTS,
@@ -17,6 +23,7 @@ import {
 	URL_ATTRIBUTES,
 	VOID_ELEMENTS,
 } from './constants.js'
+import { isHTMLCodePoint } from './validators.js'
 
 /**
  * Lowercase only ASCII uppercase characters, preserving every other code point exactly.
@@ -92,6 +99,432 @@ export function decodeEntities(value: string): string {
 		index = start + 1
 	}
 	return decoded
+}
+
+/**
+ * Scan an attribute source segment into ordered, first-wins attributes.
+ *
+ * @param source - The part of a start tag after its name and before `>`
+ * @returns Parsed attributes with ASCII-lowercased names and decoded values
+ */
+export function scanAttributes(source: string): readonly HTMLAttribute[] {
+	const attributes: HTMLAttribute[] = []
+	const names = new Set<string>()
+	let index = 0
+	while (index < source.length) {
+		while (index < source.length && HTML_WHITESPACE.includes(source[index] ?? '')) index += 1
+		if (index >= source.length || source[index] === '/') break
+		const start = index
+		while (
+			index < source.length &&
+			!HTML_WHITESPACE.includes(source[index] ?? '') &&
+			source[index] !== '=' &&
+			source[index] !== '/' &&
+			source[index] !== '"' &&
+			source[index] !== "'" &&
+			source[index] !== '<' &&
+			source[index] !== '>'
+		) {
+			index += 1
+		}
+		if (index === start) {
+			index += 1
+			continue
+		}
+		const name = lowercaseASCII(source.slice(start, index))
+		while (index < source.length && HTML_WHITESPACE.includes(source[index] ?? '')) index += 1
+		let value: string | undefined
+		if (source[index] === '=') {
+			index += 1
+			while (index < source.length && HTML_WHITESPACE.includes(source[index] ?? '')) index += 1
+			const quote = source[index]
+			if (quote === '"' || quote === "'") {
+				index += 1
+				const valueStart = index
+				while (index < source.length && source[index] !== quote) index += 1
+				if (index < source.length) {
+					value = decodeEntities(source.slice(valueStart, index))
+					index += 1
+				} else {
+					index = source.length
+				}
+			} else {
+				const valueStart = index
+				while (index < source.length && !HTML_WHITESPACE.includes(source[index] ?? '')) {
+					index += 1
+				}
+				if (index > valueStart) value = decodeEntities(source.slice(valueStart, index))
+			}
+		}
+		if (!names.has(name)) {
+			names.add(name)
+			attributes.push(value === undefined ? { name } : { name, value })
+		}
+	}
+	return attributes
+}
+
+/**
+ * Parse one unambiguous start tag without recovery under the package's ASCII tag-name grammar.
+ *
+ * @param html - The exact HTML source
+ * @param offset - The UTF-16 offset of the opening `<`
+ * @returns The start tag and exact next offset, or `undefined` for malformed or incomplete source
+ */
+export function parseStartTag(html: string, offset: number): HTMLStartTag | undefined {
+	if (!Number.isInteger(offset) || offset < 0 || html[offset] !== '<') return undefined
+	let index = offset + 1
+	if (!/[A-Za-z]/.test(html[index] ?? '')) return undefined
+	const nameStart = index
+	while (index < html.length && /[A-Za-z0-9:-]/.test(html[index] ?? '')) index += 1
+	const name = lowercaseASCII(html.slice(nameStart, index))
+	const attributes: HTMLAttribute[] = []
+	const names = new Set<string>()
+	let separated = false
+	for (;;) {
+		const boundary = html[index]
+		if (boundary !== '>' && boundary !== '/' && !separated) {
+			if (boundary === undefined || !HTML_WHITESPACE.includes(boundary)) return undefined
+			while (html[index] !== undefined && HTML_WHITESPACE.includes(html[index] ?? '')) {
+				index += 1
+			}
+		}
+		separated = false
+		const following = html[index]
+		if (following === '>') return { name, attributes, slashed: false, next: index + 1 }
+		if (following === '/') {
+			return html[index + 1] === '>'
+				? { name, attributes, slashed: true, next: index + 2 }
+				: undefined
+		}
+		if (following === undefined) return undefined
+		const attributeStart = index
+		for (;;) {
+			const character = html[index]
+			if (
+				character === undefined ||
+				HTML_WHITESPACE.includes(character) ||
+				character === '=' ||
+				character === '/' ||
+				character === '>'
+			) {
+				break
+			}
+			const point = html.codePointAt(index)
+			if (character === '"' || character === "'" || character === '<' || !isHTMLCodePoint(point)) {
+				return undefined
+			}
+			index += point > 0xffff ? 2 : 1
+		}
+		if (index === attributeStart) return undefined
+		const attributeName = lowercaseASCII(html.slice(attributeStart, index))
+		if (names.has(attributeName)) return undefined
+		names.add(attributeName)
+		const attributeEnd = index
+		while (html[index] !== undefined && HTML_WHITESPACE.includes(html[index] ?? '')) index += 1
+		const spacing = index > attributeEnd
+		let value: string | undefined
+		if (html[index] === '=') {
+			index += 1
+			while (html[index] !== undefined && HTML_WHITESPACE.includes(html[index] ?? '')) index += 1
+			const quote = html[index]
+			if (quote === '"' || quote === "'") {
+				index += 1
+				const valueStart = index
+				for (;;) {
+					const character = html[index]
+					if (character === undefined) return undefined
+					if (character === quote) break
+					const point = html.codePointAt(index)
+					if (!isHTMLCodePoint(point)) return undefined
+					index += point > 0xffff ? 2 : 1
+				}
+				value = decodeEntities(html.slice(valueStart, index))
+				index += 1
+				const delimiter = html[index]
+				if (
+					delimiter !== '>' &&
+					delimiter !== '/' &&
+					(delimiter === undefined || !HTML_WHITESPACE.includes(delimiter))
+				) {
+					return undefined
+				}
+			} else {
+				const valueStart = index
+				for (;;) {
+					const character = html[index]
+					if (character === undefined) return undefined
+					if (character === '>' || HTML_WHITESPACE.includes(character)) break
+					const point = html.codePointAt(index)
+					if (
+						character === '"' ||
+						character === "'" ||
+						character === '<' ||
+						character === '=' ||
+						character === '`' ||
+						!isHTMLCodePoint(point)
+					) {
+						return undefined
+					}
+					index += point > 0xffff ? 2 : 1
+				}
+				if (index === valueStart) return undefined
+				value = decodeEntities(html.slice(valueStart, index))
+			}
+		}
+		attributes.push(value === undefined ? { name: attributeName } : { name: attributeName, value })
+		if (value === undefined && spacing) separated = true
+	}
+}
+
+/**
+ * Scan one complete start or close tag.
+ *
+ * @param html - The normalized HTML source
+ * @param offset - The offset of the opening `<`
+ * @returns The tag and next offset, or `undefined` for an invalid or incomplete tag
+ */
+export function scanTag(html: string, offset: number): HTMLTag | undefined {
+	if (html[offset] !== '<') return undefined
+	const closing = html[offset + 1] === '/'
+	if (!closing) {
+		const parsed = parseStartTag(html, offset)
+		if (parsed !== undefined) {
+			return {
+				name: parsed.name,
+				attributes: parsed.attributes,
+				closing: false,
+				next: parsed.next,
+			}
+		}
+	}
+	let index = offset + (closing ? 2 : 1)
+	if (!/[A-Za-z]/.test(html[index] ?? '')) return undefined
+	const nameStart = index
+	while (index < html.length && /[A-Za-z0-9:-]/.test(html[index] ?? '')) index += 1
+	const name = lowercaseASCII(html.slice(nameStart, index))
+	const attributesStart = index
+	while (index < html.length) {
+		const character = html[index]
+		if (character === '>') {
+			let attributeSource = html.slice(attributesStart, index)
+			let end = attributeSource.length
+			while (end > 0 && HTML_WHITESPACE.includes(attributeSource[end - 1] ?? '')) end -= 1
+			const trimmed = attributeSource.slice(0, end)
+			if (
+				trimmed.endsWith('/') &&
+				(trimmed.length === 1 || HTML_WHITESPACE.includes(trimmed[trimmed.length - 2] ?? ''))
+			) {
+				attributeSource = trimmed.slice(0, -1)
+			}
+			return {
+				name,
+				attributes: closing ? [] : scanAttributes(attributeSource),
+				closing,
+				next: index + 1,
+			}
+		}
+		if (character === '"' || character === "'") {
+			const quote = character
+			let recovery: number | undefined
+			index += 1
+			while (index < html.length && html[index] !== quote && html[index] !== '<') {
+				if (recovery === undefined && html[index] === '>') recovery = index
+				index += 1
+			}
+			if (html[index] === quote) {
+				index += 1
+				continue
+			}
+			if (recovery === undefined) {
+				while (index < html.length && html[index] !== '>') index += 1
+				if (html[index] === '>') recovery = index
+			}
+			if (recovery === undefined) return undefined
+			return {
+				name,
+				attributes: closing ? [] : scanAttributes(html.slice(attributesStart, recovery)),
+				closing,
+				next: recovery + 1,
+			}
+		}
+		index += 1
+	}
+	return undefined
+}
+
+/**
+ * Scan a standard or bogus HTML comment.
+ *
+ * @param html - The normalized HTML source
+ * @param offset - The offset of the opening `<`
+ * @returns The comment node and next offset, or `undefined` when no comment starts here
+ */
+export function scanComment(
+	html: string,
+	offset: number,
+): { readonly node: CommentNode; readonly next: number } | undefined {
+	if (html.startsWith('<!--', offset)) {
+		const start = offset + 4
+		if (html[start] === '>') {
+			return { node: { category: 'comment', value: '' }, next: start + 1 }
+		}
+		if (html[start] === '-' && html[start + 1] === '>') {
+			return { node: { category: 'comment', value: '' }, next: start + 2 }
+		}
+		let index = start
+		while (index < html.length) {
+			if (html.startsWith('-->', index)) {
+				return {
+					node: { category: 'comment', value: html.slice(start, index) },
+					next: index + 3,
+				}
+			}
+			if (html.startsWith('--!>', index)) {
+				return {
+					node: { category: 'comment', value: html.slice(start, index) },
+					next: index + 4,
+				}
+			}
+			index += 1
+		}
+		return { node: { category: 'comment', value: html.slice(start) }, next: html.length }
+	}
+	if (!html.startsWith('<!', offset) && !html.startsWith('<?', offset)) return undefined
+	let end = offset + 2
+	while (end < html.length && html[end] !== '>') end += 1
+	return end >= html.length
+		? { node: { category: 'comment', value: html.slice(offset + 2) }, next: html.length }
+		: {
+				node: { category: 'comment', value: html.slice(offset + 2, end) },
+				next: end + 1,
+			}
+}
+
+/**
+ * Scan an HTML doctype with optional public and system identifiers.
+ *
+ * @param html - The normalized HTML source
+ * @param offset - The offset of the opening `<`
+ * @returns The doctype node and next offset, or `undefined` for a non-doctype or incomplete input
+ */
+export function scanDoctype(
+	html: string,
+	offset: number,
+): { readonly node: DoctypeNode; readonly next: number } | undefined {
+	if (lowercaseASCII(html.slice(offset, offset + 9)) !== '<!doctype') return undefined
+	const boundary = html[offset + 9]
+	if (boundary !== undefined && boundary !== '>' && !HTML_WHITESPACE.includes(boundary)) {
+		return undefined
+	}
+	let end = offset + 9
+	let doctypeQuote: string | undefined
+	while (end < html.length) {
+		const character = html[end]
+		if (doctypeQuote !== undefined) {
+			if (character === doctypeQuote) doctypeQuote = undefined
+		} else if (character === '"' || character === "'") {
+			doctypeQuote = character
+		} else if (character === '>') {
+			break
+		}
+		end += 1
+	}
+	if (end >= html.length || doctypeQuote !== undefined) return undefined
+	const body = html.slice(offset + 9, end)
+	let index = 0
+	while (index < body.length && HTML_WHITESPACE.includes(body[index] ?? '')) index += 1
+	const nameStart = index
+	while (index < body.length && !HTML_WHITESPACE.includes(body[index] ?? '')) index += 1
+	const name = lowercaseASCII(body.slice(nameStart, index))
+	if (name.length === 0) return undefined
+	while (index < body.length && HTML_WHITESPACE.includes(body[index] ?? '')) index += 1
+	const keywordStart = index
+	while (index < body.length && /[A-Za-z]/.test(body[index] ?? '')) index += 1
+	const keyword = lowercaseASCII(body.slice(keywordStart, index))
+	while (index < body.length && HTML_WHITESPACE.includes(body[index] ?? '')) index += 1
+	let publicIdentifier: string | undefined
+	let systemIdentifier: string | undefined
+	if (keyword === 'public') {
+		const quote = body[index]
+		if (quote === '"' || quote === "'") {
+			index += 1
+			const identifierStart = index
+			while (index < body.length && body[index] !== quote) index += 1
+			if (index < body.length) {
+				publicIdentifier = body.slice(identifierStart, index)
+				index += 1
+				while (index < body.length && HTML_WHITESPACE.includes(body[index] ?? '')) index += 1
+				const systemQuote = body[index]
+				if (systemQuote === '"' || systemQuote === "'") {
+					index += 1
+					const systemStart = index
+					while (index < body.length && body[index] !== systemQuote) index += 1
+					if (index < body.length) systemIdentifier = body.slice(systemStart, index)
+				}
+			}
+		}
+	} else if (keyword === 'system') {
+		const quote = body[index]
+		if (quote === '"' || quote === "'") {
+			index += 1
+			const identifierStart = index
+			while (index < body.length && body[index] !== quote) index += 1
+			if (index < body.length) systemIdentifier = body.slice(identifierStart, index)
+		}
+	}
+	const node: DoctypeNode = {
+		category: 'doctype',
+		name,
+		...(publicIdentifier === undefined ? {} : { public: publicIdentifier }),
+		...(systemIdentifier === undefined ? {} : { system: systemIdentifier }),
+	}
+	return { node, next: end + 1 }
+}
+
+/**
+ * Scan text through the case-insensitive matching close tag of a raw or literal element.
+ *
+ * @param html - The normalized HTML source
+ * @param offset - The first content offset after the start tag
+ * @param name - The lowercased element name
+ * @param entities - Whether to decode character references
+ * @returns The single text child, next offset, and whether a complete close was found
+ */
+export function scanRawText(
+	html: string,
+	offset: number,
+	name: string,
+	entities = false,
+): { readonly node: TextNode; readonly next: number; readonly closed: boolean } {
+	const marker = `</${lowercaseASCII(name)}`
+	let search = offset
+	while (search < html.length) {
+		const candidate = html.indexOf('<', search)
+		if (candidate < 0) break
+		if (lowercaseASCII(html.slice(candidate, candidate + marker.length)) !== marker) {
+			search = candidate + 1
+			continue
+		}
+		const boundary = html[candidate + marker.length]
+		if (boundary === '>' || (boundary !== undefined && HTML_WHITESPACE.includes(boundary))) {
+			const end = html.indexOf('>', candidate + marker.length)
+			if (end < 0) break
+			const value = html.slice(offset, candidate)
+			return {
+				node: { category: 'text', value: entities ? decodeEntities(value) : value },
+				next: end + 1,
+				closed: true,
+			}
+		}
+		search = candidate + marker.length
+	}
+	const value = html.slice(offset)
+	return {
+		node: { category: 'text', value: entities ? decodeEntities(value) : value },
+		next: html.length,
+		closed: false,
+	}
 }
 
 /**

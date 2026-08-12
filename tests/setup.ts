@@ -544,7 +544,7 @@ export function buildHTMLEntityURLCorpus(): readonly HTMLEntityURLCase[] {
 // The floor `sanitizeURL` enforces, enumerated as data: strip every codepoint ≤ U+0020
 // and U+007F–U+009F, refuse any two-character protocol-relative prefix drawn from `/`
 // and `\`, extract an ASCII scheme, enforce an allowlist, and keep relative / anchor /
-// scheme-less values (guides/src/html.md § The sanitize floor states the rules this
+// scheme-less values (guides/html.md § The sanitize floor states the rules this
 // corpus pins). Every vector carries its disposition, so a reader can see the whole
 // floor in one list instead of inferring it from scattered assertions, and one group's
 // vectors can be extended without touching the assertions that consume them.

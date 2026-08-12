@@ -76,7 +76,7 @@ close itself — is rendered for safety instead of fidelity.
 ## Guide
 
 For the full surface, the recovery table, the sanitize floor, and the distill pass, see
-[`guides/src/html.md`](guides/src/html.md).
+[`guides/html.md`](guides/html.md).
 
 ## Package
 
