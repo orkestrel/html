@@ -1,6 +1,6 @@
 # HTML
 
-> A zero-runtime-dependency-beyond-`@orkestrel/contract`, types-first HTML parser, renderer, sanitizer, and distiller — a hand-written, index-based tokenizer that turns any HTML string into a typed AST held by an immutable `HTML` handle, plus standalone projections that write that AST back out (canonical HTML, or structural plain text). Source: [`src/core`](../../src/core). Published through `@orkestrel/html`; surfaced in-repo through the `@src/core` barrel.
+> A zero-runtime-dependency-beyond-`@orkestrel/contract`, types-first HTML parser, renderer, sanitizer, and distiller — a hand-written, index-based tokenizer that turns any HTML string into a typed AST held by an immutable `HTML` handle, plus standalone projections that write that AST back out (canonical HTML, or structural plain text). Source: [`src/core`](../src/core). Published through `@orkestrel/html`; surfaced in-repo through the `@src/core` barrel.
 
 HTML here is: parse once into an `HTML` handle, then treat every output as a projection of it. `parseDocument` scans a page or a bare fragment — the same shape either way — into an `HTMLDocument`: a discriminated union of plain readonly node values keyed by `category`, the axis that varies. Parsing is TOTAL. Every input produces a document, so there are no parse options, no issue list, no strict mode, and no error path; strictness lives in the guards and in the renderer's refusals instead. Nothing is implied or inserted that the source did not write — no synthesized `html` / `head` / `body`, and a `<!DOCTYPE html>` is an ordinary child in source order — which is exactly why a fragment and a whole page need no mode switch between them. An `HTML` handle wraps that AST with query (`walk` / `find` / `filter` / `reduce`), rewrite (`map`), fold, and shallow streaming, and with the two document-shaping engines: `sanitize`, which enforces a security floor no option can lower, and `distill`, which extracts the prose a reader — or a language model — actually wants, and hands it back as a handle rather than a string, because the AST is what carries the structure. The renderers (`renderHTML`, `renderText`) are separate, downstream, standalone functions from AST → string; none of them assumes its input came from `parseDocument` on trusted markup, none of them throws, and every one of them degrades at a fixed depth cap rather than exhausting the call stack. The AST itself is the primary contract, with a from-unknown validation surface (`isHTMLNode` / `isHTMLDocument` / `isElementNode` / …) for the moment an AST arrives from somewhere other than this parser.
 
@@ -10,7 +10,7 @@ That totality statement governs document parsing. `parseStartTag` is the separat
 
 ### Types
 
-The full node shape and handle contract, from [`types.ts`](../../src/core/types.ts). `category` is the discriminant every node carries; absence is always `undefined`, never a sentinel.
+The full node shape and handle contract, from [`types.ts`](../src/core/types.ts). `category` is the discriminant every node carries; absence is always `undefined`, never a sentinel.
 
 | Name                 | Kind      | Shape                                                                                                                                                                                                                                           |
 | -------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -33,7 +33,7 @@ The full node shape and handle contract, from [`types.ts`](../../src/core/types.
 
 ### Constants
 
-The element vocabularies, allowlists, entity table, and depth bound every engine reads, from [`constants.ts`](../../src/core/constants.ts). Every collection is a frozen array, or — for the two keyed tables — a frozen record read through `Object.hasOwn`, so nothing a consumer can reach changes what an engine sees (§ [The sanitize floor](#the-sanitize-floor)).
+The element vocabularies, allowlists, entity table, and depth bound every engine reads, from [`constants.ts`](../src/core/constants.ts). Every collection is a frozen array, or — for the two keyed tables — a frozen record read through `Object.hasOwn`, so nothing a consumer can reach changes what an engine sees (§ [The sanitize floor](#the-sanitize-floor)).
 
 | Name                   | Kind  | Behavior                                                                                                                                                                                                                                                                                     |
 | ---------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -58,7 +58,7 @@ The element vocabularies, allowlists, entity table, and depth bound every engine
 
 ### Validators
 
-Two guard families, from [`validators.ts`](../../src/core/validators.ts). The from-unknown guards validate an entire untrusted value from scratch — a deserialized AST, a value crossing a process boundary — and are total: a cycle, a hostile prototype, a revoked proxy, or 10,000 levels of nesting returns `false` rather than throwing. The name predicates answer a question about one element or URL string and are what the engines consult.
+Two guard families, from [`validators.ts`](../src/core/validators.ts). The from-unknown guards validate an entire untrusted value from scratch — a deserialized AST, a value crossing a process boundary — and are total: a cycle, a hostile prototype, a revoked proxy, or 10,000 levels of nesting returns `false` rather than throwing. The name predicates answer a question about one element or URL string and are what the engines consult.
 
 | Name               | Kind     | Signature                                                                        | Behavior                                                                                                                                                                                                                                                                                                                                                                                |
 | ------------------ | -------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -79,7 +79,7 @@ Two guard families, from [`validators.ts`](../../src/core/validators.ts). The fr
 
 ### Parsers
 
-The tokenizer and its exported scanning pieces, from [`parsers.ts`](../../src/core/parsers.ts). `parseDocument` is the spine; every piece it composes is exported and independently testable, because a scanner nobody can call is a scanner nobody can prove. All of them are index-based, with no backtracking regex over untrusted input.
+The tokenizer and its exported scanning pieces, from [`parsers.ts`](../src/core/parsers.ts). `parseDocument` is the spine; every piece it composes is exported and independently testable, because a scanner nobody can call is a scanner nobody can prove. All of them are index-based, with no backtracking regex over untrusted input.
 
 | Name             | Kind     | Signature                                                                                                               | Behavior                                                                                                                                                                                                                          |
 | ---------------- | -------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -93,7 +93,7 @@ The tokenizer and its exported scanning pieces, from [`parsers.ts`](../../src/co
 
 ### Helpers
 
-Pure, total leaves from [`helpers.ts`](../../src/core/helpers.ts) — the functional core `HTML`'s engines compose and callers reach for directly on a bare node. Every one of them is independently testable and none of them throws: a hostile value degrades to `''`, to an empty list, or to the input unchanged.
+Pure, total leaves from [`helpers.ts`](../src/core/helpers.ts) — the functional core `HTML`'s engines compose and callers reach for directly on a bare node. Every one of them is independently testable and none of them throws: a hostile value degrades to `''`, to an empty list, or to the input unchanged.
 
 | Name                 | Kind     | Signature                                                                                                                                                  | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | -------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -119,7 +119,7 @@ Pure, total leaves from [`helpers.ts`](../../src/core/helpers.ts) — the functi
 
 ### Shapers
 
-Declarative `ContractShape` values (from `@orkestrel/contract`) in [`shapers.ts`](../../src/core/shapers.ts) — one shape compiles into a JSON Schema, a guard, a coercing parser, and a seeded generator that can never drift apart. A shape tree has no lazy or self-referential node, so only the LEAVES of this AST shape here; `ElementNode` and `HTMLDocument` recurse into `HTMLNode` and therefore stay hand-written, cycle- and depth-capped guards in `validators.ts`.
+Declarative `ContractShape` values (from `@orkestrel/contract`) in [`shapers.ts`](../src/core/shapers.ts) — one shape compiles into a JSON Schema, a guard, a coercing parser, and a seeded generator that can never drift apart. A shape tree has no lazy or self-referential node, so only the LEAVES of this AST shape here; `ElementNode` and `HTMLDocument` recurse into `HTMLNode` and therefore stay hand-written, cycle- and depth-capped guards in `validators.ts`.
 
 | Name             | Kind  | Builds                                                                                                   |
 | ---------------- | ----- | -------------------------------------------------------------------------------------------------------- |
@@ -130,7 +130,7 @@ Declarative `ContractShape` values (from `@orkestrel/contract`) in [`shapers.ts`
 
 ### Factories
 
-From [`factories.ts`](../../src/core/factories.ts).
+From [`factories.ts`](../src/core/factories.ts).
 
 | Name                      | Kind     | Signature                                          | Behavior                                                                                                                   |
 | ------------------------- | -------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
@@ -142,7 +142,7 @@ From [`factories.ts`](../../src/core/factories.ts).
 
 ### `HTML`
 
-The implementing class of `HTMLInterface`, from [`HTML.ts`](../../src/core/HTML.ts). A parsed document handle: constructed from an HTML `string` (runs `parseDocument`, which is total, so there is nothing to catch) or from an already-parsed `HTMLDocument` (adopted AS-IS and not re-validated — gate an untrusted value with `isHTMLDocument` first). It exposes its AST through the `readonly document` member, documented here in Surface prose rather than in the [`## Methods`](#methods) table below, which lists exactly `HTMLInterface`'s call-signature members. Immutable: nothing mutates the stored AST, and `map`, `sanitize`, and `distill` each return a NEW handle whose root invariant (`category: 'document'`) always holds. `walk` is the deep traversal — lazy, depth-first, pre-order, root-inclusive — and `find` / `filter` / `reduce` all iterate it, so one ordering law covers the whole query surface; `stream` is the deliberate contrast, shallow and backpressured. The two engines are private methods composing the pure leaves in `helpers.ts` over one shared bottom-up spine, `pruneDocument`.
+The implementing class of `HTMLInterface`, from [`HTML.ts`](../src/core/HTML.ts). A parsed document handle: constructed from an HTML `string` (runs `parseDocument`, which is total, so there is nothing to catch) or from an already-parsed `HTMLDocument` (adopted AS-IS and not re-validated — gate an untrusted value with `isHTMLDocument` first). It exposes its AST through the `readonly document` member, documented here in Surface prose rather than in the [`## Methods`](#methods) table below, which lists exactly `HTMLInterface`'s call-signature members. Immutable: nothing mutates the stored AST, and `map`, `sanitize`, and `distill` each return a NEW handle whose root invariant (`category: 'document'`) always holds. `walk` is the deep traversal — lazy, depth-first, pre-order, root-inclusive — and `find` / `filter` / `reduce` all iterate it, so one ordering law covers the whole query surface; `stream` is the deliberate contrast, shallow and backpressured. The two engines are private methods composing the pure leaves in `helpers.ts` over one shared bottom-up spine, `pruneDocument`.
 
 ## Methods
 
@@ -182,7 +182,7 @@ The parser also guarantees one invariant the whole system leans on: **no two adj
 
 `parseStartTag(html, offset)` is deliberately outside that recovery pipeline for a caller that must know where one start tag really ends. It consumes only HTML ASCII whitespace, retains the package's `[A-Za-z][A-Za-z0-9:-]*` tag-name grammar, ASCII-lowercases names without Unicode case folding, refuses duplicate names and malformed or incomplete attribute syntax, does not normalize the source, and returns the exact exclusive UTF-16 `next` offset after the matching `>` — including when a quoted value contains an earlier `>`. Its `slashed` fact reports only a trailing solidus that was not absorbed into an attribute value: `<html disabled/>` and `<html lang=en />` set it, while the slash in `<html lang=en/>` remains part of the unquoted value. Element semantics remain the caller's concern. It owns no element-name, attribute-allowlist, CSP, or application policy. `scanTag` composes the same successful path, then retains its established recovery path for `parseDocument`.
 
-Recovery is specified behavior, not accident. Every row here has a test in [`tests/src/core/parsers.test.ts`](../../tests/src/core/parsers.test.ts):
+Recovery is specified behavior, not accident. Every row here has a test in [`tests/src/core/parsers.test.ts`](../tests/src/core/parsers.test.ts):
 
 | Input                                                                                                                    | Behavior                                                                                                                          |
 | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
@@ -223,7 +223,7 @@ Every traversal and renderer is also iterative rather than recursive, so the cap
 
 ## Roundtrip laws
 
-What roundtrips is the AST, NOT the input bytes. Three laws hold on parser-produced roots; laws 1 and 2 are substantiated over a representative parser-produced corpus rather than by a universal proof, in [`tests/src/core/helpers.test.ts`](../../tests/src/core/helpers.test.ts) and [`tests/src/core/HTML.test.ts`](../../tests/src/core/HTML.test.ts):
+What roundtrips is the AST, NOT the input bytes. Three laws hold on parser-produced roots; laws 1 and 2 are substantiated over a representative parser-produced corpus rather than by a universal proof, in [`tests/src/core/helpers.test.ts`](../tests/src/core/helpers.test.ts) and [`tests/src/core/HTML.test.ts`](../tests/src/core/HTML.test.ts):
 
 1. **AST fixpoint.** For a parser-produced document `d`, `parseDocument(renderHTML(d))` deep-equals `d`. Rendering then reparsing is the identity on parser output.
 2. **Canonical idempotence.** For that same `d`, `renderHTML(parseDocument(renderHTML(d))) === renderHTML(d)`. The serialization is canonical: writing it twice writes the same bytes.
@@ -274,7 +274,7 @@ The floor is enforced from immutable state. The hard-banned schemes (`javascript
 
 One more thing worth stating out loud: a URL sanitizer belongs to the output context it defends, and this one defends an AST that is about to be re-serialized. Three of its rules follow from that position rather than from the lower floor every URL sanitizer shares (strip every codepoint ≤ `U+0020` and `U+007F`–`U+009F`, refuse any two-character protocol-relative prefix drawn from `/` and `\`, extract an ASCII scheme, enforce an allowlist, keep relative / anchor / scheme-less values). First, `schemes` comes from the caller and REPLACES the default, so `javascript:` / `data:` / `vbscript:` / `file:` cannot be left to the allowlist and instead need the unwidenable refusal above, which no option can argue past. Second, the sanitized value is re-serialized and can be reparsed — and a hand-built AST can defer decoding to that later parse — so character references are decoded to a bounded fixpoint BEFORE the scheme is read: an obfuscated `https&colon;&sol;&sol;host` survives decoded while an obfuscated `javascript` does not. Third, `sanitizeURL` returns the raw survivor and lets `renderHTML` encode it later, which is why a kept `"` is not a hole: escaping is the serializer's job, one pass downstream, and doing it twice would corrupt the value.
 
-The floor is enumerated as data rather than asserted case by case. `buildURLSafetyCorpus` in [`tests/setup.ts`](../../tests/setup.ts) carries every vector with its disposition — control and whitespace splices, case variance, all four protocol-relative forms, kept relative / anchor / query URLs, refused schemes, entity obfuscation, unescaped survivors — and [`tests/src/core/helpers.test.ts`](../../tests/src/core/helpers.test.ts) sweeps the whole list, checks that no group has silently disappeared from it, and then pins each of the three rules above with a named test instead of an absent assertion.
+The floor is enumerated as data rather than asserted case by case. `buildURLSafetyCorpus` in [`tests/setup.ts`](../tests/setup.ts) carries every vector with its disposition — control and whitespace splices, case variance, all four protocol-relative forms, kept relative / anchor / query URLs, refused schemes, entity obfuscation, unescaped survivors — and [`tests/src/core/helpers.test.ts`](../tests/src/core/helpers.test.ts) sweeps the whole list, checks that no group has silently disappeared from it, and then pins each of the three rules above with a named test instead of an absent assertion.
 
 ## The distill pass
 
@@ -648,18 +648,18 @@ createDoctypeContract().is({ category: 'doctype', name: 'html' }) // true
 
 ## Tests
 
-- [`tests/src/core/parsers.test.ts`](../../tests/src/core/parsers.test.ts) — strict start-tag source boundaries and hostile refusals, every exported recovering scanner, the whole recovery table row by row, entity decoding, and a hostile corpus proving totality, the no-adjacent-text invariant, and guard soundness on 100,000-tag floods.
-- [`tests/src/core/validators.test.ts`](../../tests/src/core/validators.test.ts) — the from-unknown leaf and recursive guards (cycles, hostile getters, revoked proxies, excessive depth, the void-element invariant) and the element/URL predicates.
-- [`tests/src/core/helpers.test.ts`](../../tests/src/core/helpers.test.ts) — ASCII case folding, entity decoding, the escaping, URL, attribute, and text leaves; `mergeText` / `collapseText` / `extractRegion` / `pruneDocument`; both renderers including the hand-built-AST refusals; and the AST fixpoint and canonical idempotence laws.
-- [`tests/src/core/HTML.test.ts`](../../tests/src/core/HTML.test.ts) — construction and adoption, `walk` / `find` / `filter` / `map` / `reduce` / `fold` / `stream`, the sanitize floor and its laws against an adversarial corpus, and every stage of the distill pass including its idempotence.
-- [`tests/src/core/shapers.test.ts`](../../tests/src/core/shapers.test.ts) — per-shape guard exactness, closed JSON Schemas, seeded generation, parse rebuilds, and `Infer` ↔ interface parity in both directions.
-- [`tests/src/core/factories.test.ts`](../../tests/src/core/factories.test.ts) — `createHTML` against the class it constructs, and the four compiled node contracts.
-- [`tests/policy.test.ts`](../../tests/policy.test.ts) — repository coding law: source placement, exports, readonly contracts, and syntax.
-- [`tests/guides.test.ts`](../../tests/guides.test.ts) — this guide against the real surface, in both directions.
+- [`tests/src/core/parsers.test.ts`](../tests/src/core/parsers.test.ts) — strict start-tag source boundaries and hostile refusals, every exported recovering scanner, the whole recovery table row by row, entity decoding, and a hostile corpus proving totality, the no-adjacent-text invariant, and guard soundness on 100,000-tag floods.
+- [`tests/src/core/validators.test.ts`](../tests/src/core/validators.test.ts) — the from-unknown leaf and recursive guards (cycles, hostile getters, revoked proxies, excessive depth, the void-element invariant) and the element/URL predicates.
+- [`tests/src/core/helpers.test.ts`](../tests/src/core/helpers.test.ts) — ASCII case folding, entity decoding, the escaping, URL, attribute, and text leaves; `mergeText` / `collapseText` / `extractRegion` / `pruneDocument`; both renderers including the hand-built-AST refusals; and the AST fixpoint and canonical idempotence laws.
+- [`tests/src/core/HTML.test.ts`](../tests/src/core/HTML.test.ts) — construction and adoption, `walk` / `find` / `filter` / `map` / `reduce` / `fold` / `stream`, the sanitize floor and its laws against an adversarial corpus, and every stage of the distill pass including its idempotence.
+- [`tests/src/core/shapers.test.ts`](../tests/src/core/shapers.test.ts) — per-shape guard exactness, closed JSON Schemas, seeded generation, parse rebuilds, and `Infer` ↔ interface parity in both directions.
+- [`tests/src/core/factories.test.ts`](../tests/src/core/factories.test.ts) — `createHTML` against the class it constructs, and the four compiled node contracts.
+- [`tests/policy.test.ts`](../tests/policy.test.ts) — repository coding law: source placement, exports, readonly contracts, and syntax.
+- [`tests/guides.test.ts`](../tests/guides.test.ts) — this guide against the real surface, in both directions.
 
 ## See also
 
-- [`AGENTS.md`](../../AGENTS.md) — the repository rules this package is written to.
+- [`AGENTS.md`](../AGENTS.md) — the repository rules this package is written to.
 - [`contract.md`](contract.md) — the mirrored guide for `@orkestrel/contract`, the sole runtime dependency behind the guards, shapes, and compiled contracts.
 - [`guide.md`](guide.md) — the mirrored guide for `@orkestrel/guide`, the devDependency powering the guides-parity suite.
-- [`README.md`](../README.md) — the guides index.
+- [`README.md`](README.md) — the guides index.

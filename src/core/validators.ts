@@ -104,11 +104,11 @@ export function isHTMLNode(value: unknown): value is HTMLNode {
 	const outcome = attempt(() => {
 		const ancestors = new WeakSet<object>()
 		const visited = new WeakSet<object>()
-		const pending: {
+		const pending: Array<{
 			readonly value: unknown
 			readonly depth: number
 			readonly leaving: boolean
-		}[] = [{ value, depth: 0, leaving: false }]
+		}> = [{ value, depth: 0, leaving: false }]
 		while (pending.length > 0) {
 			const entry = pending.pop()
 			if (entry === undefined) continue

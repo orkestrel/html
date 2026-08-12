@@ -334,12 +334,12 @@ export function collapseSpace(value: string): string {
  */
 export function renderHTML(node: HTMLNode): string {
 	try {
-		const stack: {
+		const stack: Array<{
 			readonly node: HTMLNode
 			readonly depth: number
 			readonly expanded: boolean
 			readonly count: number
-		}[] = [{ node, depth: -1, expanded: false, count: 0 }]
+		}> = [{ node, depth: -1, expanded: false, count: 0 }]
 		const values: string[] = []
 		const visited = new WeakSet<object>()
 		while (stack.length > 0) {
@@ -485,14 +485,14 @@ export function renderHTML(node: HTMLNode): string {
  */
 export function renderText(node: HTMLNode): string {
 	try {
-		const stack: {
+		const stack: Array<{
 			readonly node: HTMLNode
 			readonly depth: number
 			readonly leaving: boolean
 			readonly parent: ElementNode | undefined
 			readonly table: ElementNode | undefined
 			readonly preserved: boolean
-		}[] = [
+		}> = [
 			{
 				node,
 				depth: -1,
@@ -502,10 +502,10 @@ export function renderText(node: HTMLNode): string {
 				preserved: false,
 			},
 		]
-		const segments: {
+		const segments: Array<{
 			readonly value: string
 			readonly mode: 'normal' | 'preserved' | 'cell' | 'row'
-		}[] = []
+		}> = []
 		let normal = ''
 		const visited = new WeakSet<object>()
 		const tables = new WeakSet<object>()
@@ -630,7 +630,7 @@ export function renderText(node: HTMLNode): string {
  */
 export function* walkNodes(node: HTMLNode): Generator<HTMLNode> {
 	try {
-		const stack: { readonly node: HTMLNode; readonly depth: number }[] = [{ node, depth: -1 }]
+		const stack: Array<{ readonly node: HTMLNode; readonly depth: number }> = [{ node, depth: -1 }]
 		const visited = new WeakSet<object>()
 		while (stack.length > 0) {
 			const frame = stack.pop()
@@ -666,12 +666,12 @@ export function* walkNodes(node: HTMLNode): Generator<HTMLNode> {
  * @returns The folded value
  */
 export function foldNode<T>(node: HTMLNode, handlers: HTMLHandlers<T>): T {
-	const stack: {
+	const stack: Array<{
 		readonly node: HTMLNode
 		readonly depth: number
 		readonly expanded: boolean
 		readonly count: number
-	}[] = [{ node, depth: -1, expanded: false, count: 0 }]
+	}> = [{ node, depth: -1, expanded: false, count: 0 }]
 	const values: T[] = []
 	const visited = new WeakSet<object>()
 	while (stack.length > 0) {
@@ -751,12 +751,12 @@ export function foldNode<T>(node: HTMLNode, handlers: HTMLHandlers<T>): T {
  */
 export function rewriteDocument(document: HTMLDocument, rewrite: HTMLRewriteHandler): HTMLDocument {
 	try {
-		const stack: {
+		const stack: Array<{
 			readonly node: HTMLNode
 			readonly depth: number
 			readonly expanded: boolean
 			readonly count: number
-		}[] = [{ node: document, depth: -1, expanded: false, count: 0 }]
+		}> = [{ node: document, depth: -1, expanded: false, count: 0 }]
 		const values: HTMLNode[] = []
 		const visited = new WeakSet<object>()
 		while (stack.length > 0) {
@@ -948,12 +948,12 @@ export function extractRegion(document: HTMLDocument, names: readonly string[]):
  */
 export function pruneDocument(document: HTMLDocument, prune: HTMLPruneHandler): HTMLDocument {
 	try {
-		const stack: {
+		const stack: Array<{
 			readonly node: HTMLNode
 			readonly depth: number
 			readonly expanded: boolean
 			readonly count: number
-		}[] = [{ node: document, depth: -1, expanded: false, count: 0 }]
+		}> = [{ node: document, depth: -1, expanded: false, count: 0 }]
 		const results: Array<readonly HTMLNode[]> = []
 		const visited = new WeakSet<object>()
 		while (stack.length > 0) {

@@ -208,7 +208,9 @@ export function returnHTMLNonIterator(): number {
  *
  * @returns Throwing-iterator, throwing-proxy, and malformed-iterator collections
  */
-export function buildHostileHTMLAllowlists(): readonly (ReadonlySet<string> | readonly string[])[] {
+export function buildHostileHTMLAllowlists(): ReadonlyArray<
+	ReadonlySet<string> | readonly string[]
+> {
 	const throwing = new Set(['script', 'p', 'onclick', 'href', 'javascript'])
 	Object.defineProperty(throwing, Symbol.iterator, { value: throwHostileHTMLAccess })
 	const trapped = new Proxy(new Set(['script', 'p', 'onclick', 'href', 'javascript']), {
@@ -868,7 +870,7 @@ export function hasAdjacentHTMLText(document: HTMLDocument): boolean {
  * @returns The maximum element depth below the root
  */
 export function measureHTMLDepth(document: HTMLDocument): number {
-	const pending: { readonly node: HTMLNode; readonly depth: number }[] = []
+	const pending: Array<{ readonly node: HTMLNode; readonly depth: number }> = []
 	for (const child of document.children) pending.push({ node: child, depth: 0 })
 	let maximum = 0
 	while (pending.length > 0) {

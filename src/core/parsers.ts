@@ -456,7 +456,9 @@ export function parseDocument(html: string): HTMLDocument {
 	const source = html.replace(/\r\n?/g, '\n').replaceAll('\0', '\uFFFD')
 	const children: HTMLNode[] = []
 	const siblingLists: HTMLNode[][] = [children]
-	const stack: { readonly name: string; readonly children: HTMLNode[] }[] = [{ name: '', children }]
+	const stack: Array<{ readonly name: string; readonly children: HTMLNode[] }> = [
+		{ name: '', children },
+	]
 	const stackPositions = new Map<string, number[]>()
 	const overflow: string[] = []
 	const overflowPositions = new Map<string, number[]>()

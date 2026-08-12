@@ -372,7 +372,7 @@ describe('sanitizeAttributes', () => {
 	})
 
 	it('removes every alignment value outside the exact closed vocabulary', () => {
-		const values: readonly (string | undefined)[] = [
+		const values: ReadonlyArray<string | undefined> = [
 			'justify',
 			'middle',
 			'',
