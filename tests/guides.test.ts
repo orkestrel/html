@@ -19,7 +19,7 @@ import {
 	GUIDE_MANIFEST,
 	readGuideText,
 	SELF_SPECIFIERS,
-} from '../../setupGuides.js'
+} from './setupGuides.js'
 
 it('manifest lists at least one guide', () => {
 	expect(GUIDE_MANIFEST.length).toBeGreaterThan(0)
