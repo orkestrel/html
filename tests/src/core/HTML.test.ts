@@ -26,6 +26,7 @@ import {
 	renderText,
 } from '@src/core'
 import { describe, expect, expectTypeOf, it } from 'vitest'
+import { collectStream } from '@orkestrel/test'
 import {
 	buildDeepHTMLDocument,
 	buildEncodedHTMLSchemeCorpus,
@@ -35,7 +36,6 @@ import {
 	buildHTMLSanitizerCorpus,
 	buildHostileHTMLAllowlists,
 	buildShadowedHTMLAllowlist,
-	collectStream,
 	hasAdjacentHTMLText,
 	throwHostileHTMLAccess,
 } from '../../setup.js'

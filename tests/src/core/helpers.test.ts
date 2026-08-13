@@ -33,6 +33,7 @@ import {
 	walkNodes,
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
+import { createRecorder } from '@orkestrel/test'
 import {
 	URL_SAFETY_GROUPS,
 	buildDeepHTMLDocument,
@@ -42,7 +43,6 @@ import {
 	buildHTMLRoundtripCorpus,
 	buildSharedHTMLPreDocument,
 	buildURLSafetyCorpus,
-	createRecorder,
 	hasAdjacentHTMLText,
 } from '../../setup.js'
 
