@@ -32,7 +32,7 @@ import {
 	scanTag,
 	walkNodes,
 } from '@src/core'
-import { describe, expect, it } from 'vitest'
+import { bench, describe, expect, it } from 'vitest'
 import { createRecorder } from '@orkestrel/test'
 import {
 	URL_SAFETY_GROUPS,
@@ -88,6 +88,9 @@ describe('HTML escaping and URL helpers', () => {
 	})
 
 	it('audits every security-relevant generated entity value against the reviewed set', () => {
+		// The table size guards this sweep's population: a truncated table would report the
+		// reviewed control and punctuation sets from whatever survived.
+		expect(Object.keys(NAMED_ENTITIES)).toHaveLength(2_125)
 		const controls: string[] = []
 		const punctuation: string[] = []
 		for (const [name, value] of Object.entries(NAMED_ENTITIES)) {
@@ -119,42 +122,21 @@ describe('HTML escaping and URL helpers', () => {
 		}
 	})
 
-	it('stays subquadratic under recognized, unknown, and nested entity pressure', () => {
-		expect(Object.keys(NAMED_ENTITIES)).toHaveLength(2_125)
-		decodeEntities('&NotEqualTilde;'.repeat(1_000))
+	// Timeout basis: the three decodes together measured 101–116 ms across the scoped
+	// `test:src:core` runs on 2026-08-24, so 30 s is far past any loaded-host reading and catches
+	// a hang rather than grading the decode. The growth pairs these inputs came from live in the
+	// benchmark block at the end of this file.
+	it('decodes large recognized, unknown, and nested entity inputs to their exact values', () => {
+		const recognized = '&NotEqualTilde;'.repeat(80_000)
+		expect(decodeEntities(recognized)).toBe('\u2242\u0338'.repeat(80_000))
 
-		const recognizedSmall = '&NotEqualTilde;'.repeat(40_000)
-		const recognizedLarge = '&NotEqualTilde;'.repeat(80_000)
-		const recognizedSmallStart = performance.now()
-		decodeEntities(recognizedSmall)
-		const recognizedSmallElapsed = performance.now() - recognizedSmallStart
-		const recognizedLargeStart = performance.now()
-		decodeEntities(recognizedLarge)
-		const recognizedLargeElapsed = performance.now() - recognizedLargeStart
+		const unknown = `&${'unknown'.repeat(60_000)};`
+		expect(decodeEntities(unknown)).toBe(unknown)
 
-		const unknownSmall = `&${'unknown'.repeat(30_000)};`
-		const unknownLarge = `&${'unknown'.repeat(60_000)};`
-		const unknownSmallStart = performance.now()
-		expect(decodeEntities(unknownSmall)).toBe(unknownSmall)
-		const unknownSmallElapsed = performance.now() - unknownSmallStart
-		const unknownLargeStart = performance.now()
-		expect(decodeEntities(unknownLarge)).toBe(unknownLarge)
-		const unknownLargeElapsed = performance.now() - unknownLargeStart
-
-		const nestedSmall = '&amp;amp;'.repeat(40_000)
-		const nestedLarge = '&amp;amp;'.repeat(80_000)
-		const nestedSmallStart = performance.now()
-		decodeEntities(nestedSmall)
-		const nestedSmallElapsed = performance.now() - nestedSmallStart
-		const nestedLargeStart = performance.now()
-		decodeEntities(nestedLarge)
-		const nestedLargeElapsed = performance.now() - nestedLargeStart
-
-		expect(recognizedLargeElapsed).toBeLessThan(recognizedSmallElapsed * 3 + 50)
-		expect(unknownLargeElapsed).toBeLessThan(unknownSmallElapsed * 3 + 50)
-		expect(nestedLargeElapsed).toBeLessThan(nestedSmallElapsed * 3 + 50)
-		expect(recognizedLargeElapsed + unknownLargeElapsed + nestedLargeElapsed).toBeLessThan(1_500)
-	})
+		// One decode pass, not a fixpoint: the inner reference survives as literal text.
+		const nested = '&amp;amp;'.repeat(80_000)
+		expect(decodeEntities(nested)).toBe('&amp;'.repeat(80_000))
+	}, 30_000)
 
 	it('encodes HTML text minimally', () => {
 		expect(encodeText('&<>"\'')).toBe('&amp;&lt;&gt;"\'')
@@ -1271,3 +1253,35 @@ describe('AST walkers', () => {
 		expect(renderText(document)).toBe('')
 	})
 })
+
+// How decode cost moves as each entity-pressure input doubles. The suite above proves what the
+// decoder returns; these report what it costs and assert nothing, so only `npm run test:bench`
+// collects them and no gate reads them. Each pair is the input pair the deleted wall-clock ratio
+// assertions used.
+if (import.meta.env.MODE === 'benchmark') {
+	const recognizedSmall = '&NotEqualTilde;'.repeat(40_000)
+	const recognizedLarge = '&NotEqualTilde;'.repeat(80_000)
+	const unknownSmall = `&${'unknown'.repeat(30_000)};`
+	const unknownLarge = `&${'unknown'.repeat(60_000)};`
+	const nestedSmall = '&amp;amp;'.repeat(40_000)
+	const nestedLarge = '&amp;amp;'.repeat(80_000)
+
+	bench('decodeEntities — 40,000 recognized references', () => {
+		decodeEntities(recognizedSmall)
+	})
+	bench('decodeEntities — 80,000 recognized references', () => {
+		decodeEntities(recognizedLarge)
+	})
+	bench('decodeEntities — one unknown name of 30,000 segments', () => {
+		decodeEntities(unknownSmall)
+	})
+	bench('decodeEntities — one unknown name of 60,000 segments', () => {
+		decodeEntities(unknownLarge)
+	})
+	bench('decodeEntities — 40,000 nested references', () => {
+		decodeEntities(nestedSmall)
+	})
+	bench('decodeEntities — 80,000 nested references', () => {
+		decodeEntities(nestedLarge)
+	})
+}

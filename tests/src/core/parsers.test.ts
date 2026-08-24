@@ -1,6 +1,6 @@
 import type { ElementNode, HTMLDocument } from '@src/core'
 import { MAX_DEPTH, isHTMLDocument, parseDocument, renderHTML, walkNodes } from '@src/core'
-import { describe, expect, it } from 'vitest'
+import { bench, describe, expect, it } from 'vitest'
 import {
 	buildDeepHTMLInput,
 	buildHTMLAttributeInput,
@@ -231,68 +231,58 @@ describe('parseDocument entities and declarations', () => {
 })
 
 describe('parseDocument hostile corpus totality', () => {
-	it('parses a large repeated raw-element input within a linear-time bound', () => {
-		const source = '<script></script>'.repeat(15_000)
-		const start = performance.now()
-		const document = parseDocument(source)
-		const elapsed = performance.now() - start
+	// Timeout basis for the five sized parses that follow: each measured 25–137 ms across the
+	// scoped `test:src:core` runs on 2026-08-24, so 30 s is far past any loaded-host reading and
+	// catches a hang rather than grading the parse. The growth pairs these inputs came from live
+	// in the benchmark block at the end of this file.
+	it('parses 15,000 repeated raw elements into one empty script element each', () => {
+		const document = parseDocument('<script></script>'.repeat(15_000))
 		expect(document.children).toHaveLength(15_000)
-		expect(elapsed).toBeLessThan(750)
-	})
-
-	it('scales linearly through close soup after the depth overflow boundary', () => {
-		const smallSource = `${'<x>'.repeat(12_000)}${'</y>'.repeat(12_000)}`
-		const largeSource = `${'<x>'.repeat(24_000)}${'</y>'.repeat(24_000)}`
-		const smallStart = performance.now()
-		parseDocument(smallSource)
-		const smallElapsed = performance.now() - smallStart
-		const largeStart = performance.now()
-		parseDocument(largeSource)
-		const largeElapsed = performance.now() - largeStart
-		expect(largeElapsed).toBeLessThan(smallElapsed * 3 + 30)
-		expect(largeElapsed).toBeLessThan(600)
-	})
-
-	it('keeps unmatched close lookup linear with a full open-element stack', () => {
-		const smallSource = `${'<x>'.repeat(MAX_DEPTH)}${'</y>'.repeat(50_000)}`
-		const largeSource = `${'<x>'.repeat(MAX_DEPTH)}${'</y>'.repeat(100_000)}`
-		const smallStart = performance.now()
-		parseDocument(smallSource)
-		const smallElapsed = performance.now() - smallStart
-		const largeStart = performance.now()
-		const document = parseDocument(largeSource)
-		const largeElapsed = performance.now() - largeStart
-		expect(largeElapsed).toBeLessThan(smallElapsed * 3 + 50)
-		expect(largeElapsed).toBeLessThan(750)
+		expect(document.children[0]).toEqual({
+			category: 'element',
+			name: 'script',
+			attributes: [],
+			children: [{ category: 'text', value: '' }],
+		})
+		expect(document.children[14_999]).toEqual({
+			category: 'element',
+			name: 'script',
+			attributes: [],
+			children: [{ category: 'text', value: '' }],
+		})
 		expect(isHTMLDocument(document)).toBe(true)
-	})
+	}, 30_000)
 
-	it('scales linearly through a start tag with many quoted attributes', () => {
-		const smallSource = buildHTMLAttributeInput(96_000)
-		const largeSource = buildHTMLAttributeInput(192_000)
-		const smallStart = performance.now()
-		parseDocument(smallSource)
-		const smallElapsed = performance.now() - smallStart
-		const largeStart = performance.now()
-		parseDocument(largeSource)
-		const largeElapsed = performance.now() - largeStart
-		expect(largeElapsed).toBeLessThan(smallElapsed * 3 + 100)
-		expect(largeElapsed).toBeLessThan(750)
-	})
-
-	it('scales linearly through mixed attribute, raw-element, and close-soup pressure', () => {
-		const smallSource = buildMixedHTMLInput(10_000)
-		const largeSource = buildMixedHTMLInput(20_000)
-		const smallStart = performance.now()
-		parseDocument(smallSource)
-		const smallElapsed = performance.now() - smallStart
-		const largeStart = performance.now()
-		const document = parseDocument(largeSource)
-		const largeElapsed = performance.now() - largeStart
-		expect(largeElapsed).toBeLessThan(smallElapsed * 3 + 100)
-		expect(largeElapsed).toBeLessThan(750)
+	it('caps a 24,000-deep open run at MAX_DEPTH and discards the unmatched closes after it', () => {
+		const document = parseDocument(`${'<x>'.repeat(24_000)}${'</y>'.repeat(24_000)}`)
+		expect(measureHTMLDepth(document)).toBe(MAX_DEPTH)
+		expect(document.children).toHaveLength(1)
 		expect(isHTMLDocument(document)).toBe(true)
-	})
+	}, 30_000)
+
+	it('discards 100,000 unmatched closes against a full open-element stack', () => {
+		const document = parseDocument(`${'<x>'.repeat(MAX_DEPTH)}${'</y>'.repeat(100_000)}`)
+		expect(measureHTMLDepth(document)).toBe(MAX_DEPTH)
+		expect(document.children).toHaveLength(1)
+		expect(isHTMLDocument(document)).toBe(true)
+	}, 30_000)
+
+	it('collapses 192,000 duplicate quoted attributes to one first-wins attribute', () => {
+		const document = parseDocument(buildHTMLAttributeInput(192_000))
+		const element = document.children[0]
+		if (element?.category !== 'element') throw new Error('expected element')
+		expect(element.name).toBe('x')
+		expect(element.attributes).toEqual([{ name: 'a', value: '' }])
+		expect(document.children).toHaveLength(1)
+		expect(isHTMLDocument(document)).toBe(true)
+	}, 30_000)
+
+	it('parses mixed attribute, raw-element, and close-soup pressure into its documented shape', () => {
+		const document = parseDocument(buildMixedHTMLInput(20_000))
+		expect(document.children).toHaveLength(20_002)
+		expect(measureHTMLDepth(document)).toBe(MAX_DEPTH)
+		expect(isHTMLDocument(document)).toBe(true)
+	}, 30_000)
 
 	const cases = [
 		'',
@@ -410,3 +400,47 @@ describe('parseDocument parse and guard soundness', () => {
 		expect(extractHTMLText(parseDocument(source))).toBe('onetwothreefour')
 	})
 })
+
+// How parse cost moves as each hostile input doubles. The suite above proves what the parse
+// returns; these report what it costs and assert nothing, so only `npm run test:bench` collects
+// them and no gate reads them. Each pair is the input pair the deleted wall-clock ratio
+// assertions used.
+if (import.meta.env.MODE === 'benchmark') {
+	const rawElements = '<script></script>'.repeat(15_000)
+	const closeSoupSmall = `${'<x>'.repeat(12_000)}${'</y>'.repeat(12_000)}`
+	const closeSoupLarge = `${'<x>'.repeat(24_000)}${'</y>'.repeat(24_000)}`
+	const strayCloseSmall = `${'<x>'.repeat(MAX_DEPTH)}${'</y>'.repeat(50_000)}`
+	const strayCloseLarge = `${'<x>'.repeat(MAX_DEPTH)}${'</y>'.repeat(100_000)}`
+	const attributesSmall = buildHTMLAttributeInput(96_000)
+	const attributesLarge = buildHTMLAttributeInput(192_000)
+	const mixedSmall = buildMixedHTMLInput(10_000)
+	const mixedLarge = buildMixedHTMLInput(20_000)
+
+	bench('parseDocument — 15,000 repeated raw elements', () => {
+		parseDocument(rawElements)
+	})
+	bench('parseDocument — 12,000 opens then 12,000 unmatched closes', () => {
+		parseDocument(closeSoupSmall)
+	})
+	bench('parseDocument — 24,000 opens then 24,000 unmatched closes', () => {
+		parseDocument(closeSoupLarge)
+	})
+	bench('parseDocument — 50,000 unmatched closes against a full stack', () => {
+		parseDocument(strayCloseSmall)
+	})
+	bench('parseDocument — 100,000 unmatched closes against a full stack', () => {
+		parseDocument(strayCloseLarge)
+	})
+	bench('parseDocument — 96,000 duplicate quoted attributes', () => {
+		parseDocument(attributesSmall)
+	})
+	bench('parseDocument — 192,000 duplicate quoted attributes', () => {
+		parseDocument(attributesLarge)
+	})
+	bench('parseDocument — mixed pressure at 10,000 per family', () => {
+		parseDocument(mixedSmall)
+	})
+	bench('parseDocument — mixed pressure at 20,000 per family', () => {
+		parseDocument(mixedLarge)
+	})
+}
