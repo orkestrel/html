@@ -363,14 +363,14 @@ export const BOILERPLATE_ELEMENTS: readonly string[] = Object.freeze([
 export const REGION_ELEMENTS: readonly string[] = Object.freeze(['main', 'article'])
 
 /**
- * The 2,125 semicolon-terminated named character references from the WHATWG HTML set,
- * keyed by name without the leading `&` or trailing `;`. The parser decodes them in
- * text, attribute values, and literal-text elements through a frozen own-property record.
+ * The semicolon-terminated named character references from the WHATWG HTML set, keyed
+ * by name without the leading `&` or trailing `;`. The parser decodes them in text,
+ * attribute values, and literal-text elements through a frozen own-property record.
  * Unknown and prototype-like names stay literal.
  *
  * @remarks
- * Snapshot: https://html.spec.whatwg.org/entities.json on 2026-07-30. This is the
- * semicolon-terminated subset of the upstream 2,231 spellings. The 106 legacy
+ * Vendored from https://html.spec.whatwg.org/entities.json, fetched 2026-08-24 into
+ * `tests/src/core/fixtures/entities.json`, the fixture of record for this table. Legacy
  * no-semicolon aliases are intentionally excluded because the tokenizer requires `;`;
  * supporting legacy longest-match behavior would be a security-sensitive rewrite.
  * Every canonical character value is escaped for a readable, verifiable source diff.
