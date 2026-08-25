@@ -91,7 +91,7 @@ describe('HTML escaping and URL helpers', () => {
 	it('audits every security-relevant generated entity value against the reviewed set', () => {
 		const controls: string[] = []
 		const punctuation: string[] = []
-		for (const [name, value] of Object.entries(WHATWG_NAMED_ENTITIES)) {
+		for (const [name, value] of Object.entries(NAMED_ENTITIES)) {
 			if (
 				[...value].some((character) => {
 					const point = character.codePointAt(0)

@@ -2,7 +2,9 @@ import type { ElementNode, HTMLDocument, HTMLNode } from '@src/core'
 import { MAX_DEPTH, parseDocument } from '@src/core'
 import WHATWG_ENTITIES from './src/core/fixtures/entities.json' with { type: 'json' }
 
-// Fetched from https://html.spec.whatwg.org/entities.json on 2026-08-24.
+// Fetched from https://html.spec.whatwg.org/entities.json on 2026-08-24. The repository
+// formatter reshaped the file's whitespace after the fetch; the parsed entries are the fetched
+// ones unchanged.
 /** The semicolon-terminated names and characters from the vendored WHATWG entity reference. */
 export const WHATWG_NAMED_ENTITIES: Readonly<Record<string, string>> = Object.freeze(
 	Object.fromEntries(
