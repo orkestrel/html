@@ -1,6 +1,6 @@
 {
 	"name": "@orkestrel/html",
-	"version": "0.0.5",
+	"version": "0.0.6",
 	"description": "A typed HTML AST: total parsing, canonical rendering, sanitizing against a fixed floor, and distilling a page to the content a language model should read.",
 	"keywords": [
 		"ast",
