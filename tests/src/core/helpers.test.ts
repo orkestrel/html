@@ -36,6 +36,7 @@ import { bench, describe, expect, it } from 'vitest'
 import { createRecorder } from '@orkestrel/test'
 import {
 	URL_SAFETY_GROUPS,
+	WHATWG_NAMED_ENTITIES,
 	buildDeepHTMLDocument,
 	buildBranchingHTMLElement,
 	buildDiamondHTMLDocument,
@@ -60,8 +61,8 @@ describe('HTML escaping and URL helpers', () => {
 
 	it('decodes every semicolon-terminated WHATWG named entity exactly', () => {
 		expect(Object.isFrozen(NAMED_ENTITIES)).toBe(true)
-		expect(Object.keys(NAMED_ENTITIES)).toHaveLength(2_125)
-		for (const [name, value] of Object.entries(NAMED_ENTITIES)) {
+		expect(NAMED_ENTITIES).toEqual(WHATWG_NAMED_ENTITIES)
+		for (const [name, value] of Object.entries(WHATWG_NAMED_ENTITIES)) {
 			expect({ name, decoded: decodeEntities(`&${name};`) }).toEqual({ name, decoded: value })
 		}
 	})
@@ -88,12 +89,9 @@ describe('HTML escaping and URL helpers', () => {
 	})
 
 	it('audits every security-relevant generated entity value against the reviewed set', () => {
-		// The table size guards this sweep's population: a truncated table would report the
-		// reviewed control and punctuation sets from whatever survived.
-		expect(Object.keys(NAMED_ENTITIES)).toHaveLength(2_125)
 		const controls: string[] = []
 		const punctuation: string[] = []
-		for (const [name, value] of Object.entries(NAMED_ENTITIES)) {
+		for (const [name, value] of Object.entries(WHATWG_NAMED_ENTITIES)) {
 			if (
 				[...value].some((character) => {
 					const point = character.codePointAt(0)

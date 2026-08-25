@@ -1,5 +1,16 @@
 import type { ElementNode, HTMLDocument, HTMLNode } from '@src/core'
 import { MAX_DEPTH, parseDocument } from '@src/core'
+import WHATWG_ENTITIES from './src/core/fixtures/entities.json' with { type: 'json' }
+
+// Fetched from https://html.spec.whatwg.org/entities.json on 2026-08-24.
+/** The semicolon-terminated names and characters from the vendored WHATWG entity reference. */
+export const WHATWG_NAMED_ENTITIES: Readonly<Record<string, string>> = Object.freeze(
+	Object.fromEntries(
+		Object.entries(WHATWG_ENTITIES)
+			.filter(([name]) => name.endsWith(';'))
+			.map(([name, entity]) => [name.slice(1, -1), entity.characters] as const),
+	),
+)
 
 // ── Deterministic randomness ─────────────────────────────────────────────────
 //
