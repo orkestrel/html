@@ -94,12 +94,17 @@ export const BLOCK_ELEMENTS: readonly string[] = Object.freeze([
 
 /**
  * The implied end-tag table: for each element that can be left open, the start tags whose
- * arrival closes it. The parser walks its open elements from the innermost outward,
- * closing each one whose entry contains the incoming tag and stopping at the first that
- * does not - which is how `<p>one<p>two`, `<li>a<li>b`, `<dt>t<dd>d`, and a bare
- * `<tr><td>x<td>y` recover into the structure their author meant. An open `p` maps to the
- * whole `BLOCK_ELEMENTS` collection rather than to a second copy of it, so the two can never
- * drift apart.
+ * arrival closes it. An incoming start tag collects one candidate per row that lists it, the
+ * innermost open instance of that row's element, so a candidate sitting beneath elements the
+ * table never names is still collected. The parser rules each candidate against its own
+ * `IMPLIED_BARRIERS` row, drops one holding a barrier open inside it, and closes out to the
+ * shallowest candidate that survives - carrying every element still open inside that one with
+ * it. That is how `<p>one<p>two`, `<li>a<li>b`, `<dt>t<dd>d`, and a bare `<tr><td>x<td>y`
+ * recover into the structure their author meant, how `<p><b>x<div>y` closes the open `b`
+ * element along with the paragraph, and how `<table><tr><td><p><button>x<td>y` still closes
+ * the cell after the button barrier rules the paragraph out. An open `p` maps to the whole
+ * `BLOCK_ELEMENTS` collection rather than to a second copy of it, so the two can never drift
+ * apart.
  */
 export const IMPLIED_CLOSERS: Readonly<Record<string, readonly string[]>> = Object.freeze({
 	p: BLOCK_ELEMENTS,
