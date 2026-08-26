@@ -1,7 +1,5 @@
 import type { ElementNode, HTMLDocument } from '@src/core'
 import {
-	IMPLIED_BARRIERS,
-	IMPLIED_CLOSERS,
 	MAX_DEPTH,
 	isHTMLDocument,
 	parseDocument,
@@ -157,16 +155,56 @@ describe('parseDocument recovery table', () => {
 		)
 	})
 
-	it('keeps entry-keyed ancestors open across every configured scope barrier', () => {
-		for (const [open, barriers] of Object.entries(IMPLIED_BARRIERS)) {
-			const incoming = IMPLIED_CLOSERS[open]?.[0]
-			if (incoming === undefined) throw new Error(`expected an implied closer for ${open}`)
-			for (const barrier of barriers) {
-				expect(renderHTML(parseDocument(`<${open}><${barrier}>x<${incoming}>y`))).toBe(
-					`<${open}><${barrier}>x<${incoming}>y</${incoming}></${barrier}></${open}>`,
-				)
-			}
-		}
+	it('rules a blocked deep candidate without abandoning a shallower open cell', () => {
+		expect(renderHTML(parseDocument('<table><tr><td><p><button>x<td>y'))).toBe(
+			'<table><tr><td><p><button>x</button></p></td><td>y</td></tr></table>',
+		)
+	})
+
+	it('keeps a paragraph open across an applet barrier', () => {
+		expect(renderHTML(parseDocument('<p><applet>x<div>y'))).toBe(
+			'<p><applet>x<div>y</div></applet></p>',
+		)
+	})
+
+	it('keeps a paragraph open across an object barrier', () => {
+		expect(renderHTML(parseDocument('<p><object>x<div>y'))).toBe(
+			'<p><object>x<div>y</div></object></p>',
+		)
+	})
+
+	it('keeps a paragraph open across a marquee barrier', () => {
+		expect(renderHTML(parseDocument('<p><marquee>x<div>y'))).toBe(
+			'<p><marquee>x<div>y</div></marquee></p>',
+		)
+	})
+
+	it('keeps a paragraph open across a template barrier', () => {
+		expect(renderHTML(parseDocument('<p><template>x<div>y'))).toBe(
+			'<p><template>x<div>y</div></template></p>',
+		)
+	})
+
+	it('keeps a list item open across a special element barrier', () => {
+		expect(renderHTML(parseDocument('<li><blockquote>x<li>y'))).toBe(
+			'<li><blockquote>x<li>y</li></blockquote></li>',
+		)
+	})
+
+	it('keeps a list item open across a table barrier', () => {
+		expect(renderHTML(parseDocument('<li><table>x<li>y'))).toBe(
+			'<li><table>x<li>y</li></table></li>',
+		)
+	})
+
+	it('keeps an option open across a select barrier', () => {
+		expect(renderHTML(parseDocument('<option><select>x<option>y'))).toBe(
+			'<option><select>x<option>y</option></select></option>',
+		)
+	})
+
+	it('keeps a ruby annotation open across a ruby barrier', () => {
+		expect(renderHTML(parseDocument('<rt><ruby>x<rt>y'))).toBe('<rt><ruby>x<rt>y</rt></ruby></rt>')
 	})
 
 	it('reaches a represented implied closer through the depth overflow stack', () => {

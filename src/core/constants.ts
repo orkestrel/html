@@ -123,16 +123,18 @@ export const IMPLIED_CLOSERS: Readonly<Record<string, readonly string[]>> = Obje
  *
  * @remarks
  * The table adapts the scope rules in WHATWG HTML 13.2.6 to this total parser's
- * non-inserting stack. `p` uses the reachable button-scope barriers; `select` is added
- * because the conforming in-select mode would prevent a block trigger from reaching an
- * outer paragraph. Table descendants that also close `p` are omitted because they cannot
- * remain open above it. The `li`, `dt`, and `dd` rows use the reachable special elements,
- * excluding the specified `address`, `div`, and `p` pass-through elements, parser void and
- * raw-text elements that cannot expose a nested trigger, and each row's own close targets.
- * The option rows add `select`, and the ruby rows add `ruby`, because their WHATWG insertion
+ * non-inserting stack. `p` uses the reachable button-scope barriers, `select` among them
+ * because the living standard's base scope list carries it. Table descendants that also
+ * close `p` are omitted because they cannot remain open above it. The `li`, `dt`, and `dd`
+ * rows use the reachable special elements, excluding the specified `address`, `div`, and `p`
+ * pass-through elements, parser void and raw-text elements that cannot expose a nested
+ * trigger, and each row's own close targets. The option rows use `select`, which that same
+ * base scope list already carries. The ruby rows add `ruby`, because their WHATWG insertion
  * modes otherwise make arbitrary intervening elements unreachable. The table rows use the
- * WHATWG table-scope boundaries without departure. Namespace integration points are omitted
- * because this AST has no namespaces.
+ * WHATWG table-scope boundaries without departure. `html` is the one row member whose effect
+ * departs: a conforming tree builder never re-stacks a nested `html` start tag, so `html`
+ * never acts as a mid-tree barrier there, while this parser stacks it and so it does here.
+ * Namespace integration points are omitted because this AST has no namespaces.
  */
 export const IMPLIED_BARRIERS: Readonly<Record<string, readonly string[]>> = Object.freeze({
 	p: Object.freeze(['applet', 'button', 'html', 'marquee', 'object', 'select', 'template']),

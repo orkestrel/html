@@ -76,6 +76,67 @@ export function projectSpan(
 }
 
 /**
+ * Finds the deepest open occurrence of an element name across the parser's two stacks.
+ *
+ * @remarks
+ * The overflow stack holds the elements the depth cap refused to represent, so every
+ * position recorded there sits deeper than every represented position. An occurrence in
+ * overflow therefore wins outright, and only its absence makes the represented stack the
+ * answer.
+ *
+ * @param represented - Each name's recorded positions on the represented element stack
+ * @param overflow - Each name's recorded positions on the depth-overflow stack
+ * @param name - The lowercased element name
+ * @returns The deepest occurrence and the stack that recorded it, or `undefined` when the
+ * name has no open occurrence
+ *
+ * @example
+ * ```ts
+ * import { findOpenPosition } from '@orkestrel/html'
+ *
+ * const represented = new Map([['p', [1]]])
+ * findOpenPosition(represented, new Map(), 'p') // { overflow: false, position: 1 }
+ * findOpenPosition(represented, new Map([['p', [0, 3]]]), 'p') // { overflow: true, position: 3 }
+ * findOpenPosition(represented, new Map(), 'div') // undefined
+ * ```
+ */
+export function findOpenPosition(
+	represented: ReadonlyMap<string, readonly number[]>,
+	overflow: ReadonlyMap<string, readonly number[]>,
+	name: string,
+): { readonly overflow: boolean; readonly position: number } | undefined {
+	const overflowPositions = overflow.get(name)
+	const overflowPosition = overflowPositions?.[overflowPositions.length - 1]
+	if (overflowPosition !== undefined) return { overflow: true, position: overflowPosition }
+	const representedPositions = represented.get(name)
+	const representedPosition = representedPositions?.[representedPositions.length - 1]
+	return representedPosition === undefined
+		? undefined
+		: { overflow: false, position: representedPosition }
+}
+
+/**
+ * Projects one stack position onto the single depth scale both stacks compare on.
+ *
+ * @param overflow - If `true`, the position indexes the overflow stack and is measured from
+ * the represented stack's height; if `false`, it indexes the represented stack directly
+ * @param position - The recorded position within its own stack
+ * @param height - The represented element stack's height
+ * @returns The comparable depth
+ *
+ * @example
+ * ```ts
+ * import { projectDepth } from '@orkestrel/html'
+ *
+ * projectDepth(false, 2, 5) // 2 - a represented position is already comparable
+ * projectDepth(true, 2, 5) // 7 - every overflow position sits below the whole stack
+ * ```
+ */
+export function projectDepth(overflow: boolean, position: number, height: number): number {
+	return overflow ? height + position : position
+}
+
+/**
  * Lowercase only ASCII uppercase characters, preserving every other code point exactly.
  *
  * @param value - The source value

@@ -16,8 +16,10 @@ import {
 } from './constants.js'
 import {
 	decodeEntities,
+	findOpenPosition,
 	lowercaseASCII,
 	normalizeSource,
+	projectDepth,
 	projectSpan,
 	scanComment,
 	scanDoctype,
@@ -129,16 +131,13 @@ export function parseProvenance(html: string): HTMLParseResult {
 		let overflowTarget = overflow.length
 		if (tag.closing) {
 			if (VOID_ELEMENTS.includes(tag.name)) continue
-			const overflowMatches = overflowPositions.get(tag.name)
-			const overflowMatch = overflowMatches?.[overflowMatches.length - 1]
-			if (overflowMatch !== undefined) {
-				overflowTarget = overflowMatch
-			} else {
-				const stackMatches = stackPositions.get(tag.name)
-				const stackMatch = stackMatches?.[stackMatches.length - 1]
-				if (stackMatch !== undefined) {
+			const match = findOpenPosition(stackPositions, overflowPositions, tag.name)
+			if (match !== undefined) {
+				if (match.overflow) {
+					overflowTarget = match.position
+				} else {
 					overflowTarget = 0
-					stackTarget = stackMatch
+					stackTarget = match.position
 				}
 			}
 		} else {
@@ -149,47 +148,34 @@ export function parseProvenance(html: string): HTMLParseResult {
 			}> = []
 			for (const [open, closers] of Object.entries(IMPLIED_CLOSERS)) {
 				if (!closers.includes(tag.name)) continue
-				const overflowMatches = overflowPositions.get(open)
-				const overflowMatch = overflowMatches?.[overflowMatches.length - 1]
-				if (overflowMatch !== undefined) {
-					implied.push({ name: open, overflow: true, position: overflowMatch })
-					continue
-				}
-				const stackMatches = stackPositions.get(open)
-				const stackMatch = stackMatches?.[stackMatches.length - 1]
-				if (stackMatch !== undefined) {
-					implied.push({ name: open, overflow: false, position: stackMatch })
+				const match = findOpenPosition(stackPositions, overflowPositions, open)
+				if (match !== undefined) {
+					implied.push({ name: open, overflow: match.overflow, position: match.position })
 				}
 			}
-			implied.sort((left, right) => {
-				const leftDepth = left.overflow ? stack.length + left.position : left.position
-				const rightDepth = right.overflow ? stack.length + right.position : right.position
-				return rightDepth - leftDepth
-			})
+			implied.sort(
+				(left, right) =>
+					projectDepth(right.overflow, right.position, stack.length) -
+					projectDepth(left.overflow, left.position, stack.length),
+			)
 			let impliedTarget: (typeof implied)[number] | undefined
 			for (const candidate of implied) {
-				const candidateDepth = candidate.overflow
-					? stack.length + candidate.position
-					: candidate.position
+				const candidateDepth = projectDepth(candidate.overflow, candidate.position, stack.length)
 				const barriers = Object.hasOwn(IMPLIED_BARRIERS, candidate.name)
 					? IMPLIED_BARRIERS[candidate.name]
 					: undefined
 				let blocked = false
 				if (barriers !== undefined) {
 					for (const barrier of barriers) {
-						const barrierOverflow = overflowPositions.get(barrier)
-						const overflowPosition = barrierOverflow?.[barrierOverflow.length - 1]
-						const barrierStack = stackPositions.get(barrier)
-						const stackPosition = barrierStack?.[barrierStack.length - 1]
-						const barrierDepth =
-							overflowPosition === undefined ? stackPosition : stack.length + overflowPosition
-						if (barrierDepth !== undefined && barrierDepth > candidateDepth) {
+						const match = findOpenPosition(stackPositions, overflowPositions, barrier)
+						if (match === undefined) continue
+						if (projectDepth(match.overflow, match.position, stack.length) > candidateDepth) {
 							blocked = true
 							break
 						}
 					}
 				}
-				if (blocked) break
+				if (blocked) continue
 				impliedTarget = candidate
 			}
 			if (impliedTarget !== undefined) {

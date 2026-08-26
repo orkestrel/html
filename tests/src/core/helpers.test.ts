@@ -11,6 +11,7 @@ import {
 	encodeAttribute,
 	encodeText,
 	extractRegion,
+	findOpenPosition,
 	foldNode,
 	isSafeURL,
 	lowercaseASCII,
@@ -18,6 +19,7 @@ import {
 	normalizeSource,
 	parseDocument,
 	parseStartTag,
+	projectDepth,
 	projectSpan,
 	pruneDocument,
 	renderHTML,
@@ -59,6 +61,52 @@ describe('HTML escaping and URL helpers', () => {
 
 	it('projectSpan refuses an uncovered boundary', () => {
 		expect(projectSpan([0, 1], 1, 2)).toBeUndefined()
+	})
+
+	it('findOpenPosition returns the last represented position of an open name', () => {
+		expect(findOpenPosition(new Map([['p', [1]]]), new Map(), 'p')).toEqual({
+			overflow: false,
+			position: 1,
+		})
+		expect(
+			findOpenPosition(
+				new Map([
+					['p', [1, 4]],
+					['div', [2]],
+				]),
+				new Map(),
+				'p',
+			),
+		).toEqual({ overflow: false, position: 4 })
+	})
+
+	it('findOpenPosition returns undefined for a name no stack records', () => {
+		expect(findOpenPosition(new Map([['p', [1]]]), new Map(), 'div')).toBeUndefined()
+		expect(findOpenPosition(new Map([['p', [1]]]), new Map([['b', [0]]]), 'div')).toBeUndefined()
+		expect(findOpenPosition(new Map(), new Map(), 'p')).toBeUndefined()
+	})
+
+	it('findOpenPosition prefers an overflow occurrence over a represented one', () => {
+		const represented = new Map([['p', [1]]])
+		const overflow = new Map([['p', [0, 3]]])
+		expect(findOpenPosition(represented, overflow, 'p')).toEqual({ overflow: true, position: 3 })
+		expect(findOpenPosition(new Map(), overflow, 'p')).toEqual({ overflow: true, position: 3 })
+	})
+
+	it('projectDepth leaves a represented position on its own scale', () => {
+		expect(projectDepth(false, 2, 5)).toBe(2)
+		expect(projectDepth(false, 0, 64)).toBe(0)
+	})
+
+	it('projectDepth measures an overflow position below the whole represented stack', () => {
+		expect(projectDepth(true, 2, 5)).toBe(7)
+		expect(projectDepth(true, 0, 5)).toBe(5)
+	})
+
+	it('projectDepth ranks every overflow position deeper than every represented one', () => {
+		const height = 4
+		const deepestRepresented = projectDepth(false, height - 1, height)
+		expect(projectDepth(true, 0, height)).toBeGreaterThan(deepestRepresented)
 	})
 
 	it('lowercaseASCII folds only ASCII uppercase characters', () => {
