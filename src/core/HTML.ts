@@ -6,6 +6,7 @@ import type {
 	HTMLInterface,
 	HTMLNode,
 	HTMLRewriteHandler,
+	HTMLSpan,
 	SanitizeOptions,
 } from './types.js'
 import { attempt } from '@orkestrel/contract'
@@ -66,14 +67,27 @@ import { isEmptyElement } from './validators.js'
  */
 export class HTML implements HTMLInterface {
 	readonly #document: HTMLDocument
+	readonly #spans: Map<HTMLNode, HTMLSpan>
 
 	constructor(input: string | HTMLDocument) {
-		this.#document = typeof input === 'string' ? parseDocument(input) : input
+		this.#spans = new Map()
+		this.#document = typeof input === 'string' ? parseDocument(input, this.#spans) : input
 	}
 
 	/** The stored {@link HTMLDocument} AST root. */
 	get document(): HTMLDocument {
 		return this.#document
+	}
+
+	/**
+	 * Returns the half-open original-input region that produced a node in this handle's tree.
+	 *
+	 * @param node - The node whose provenance to look up
+	 * @returns A fresh span value, or `undefined` when the node has no provenance here
+	 */
+	span(node: HTMLNode): HTMLSpan | undefined {
+		const span = this.#spans.get(node)
+		return span === undefined ? undefined : { start: span.start, end: span.end }
 	}
 
 	/**
@@ -123,8 +137,9 @@ export class HTML implements HTMLInterface {
 	 * @param rewrite - The bottom-up node rewrite
 	 * @returns A new handle over the rewritten document
 	 */
-	map(rewrite: HTMLRewriteHandler): HTMLInterface {
-		return new HTML(rewriteDocument(this.#document, rewrite))
+	map(rewrite: HTMLRewriteHandler): HTML {
+		const derivations = new Map<HTMLNode, HTMLNode>()
+		return this.#derive(rewriteDocument(this.#document, rewrite, derivations), derivations)
 	}
 
 	/**
@@ -209,19 +224,23 @@ export class HTML implements HTMLInterface {
 	 * // `href` is kept, `onclick` is still stripped - the floor is not an allowlist
 	 * ```
 	 */
-	sanitize(options?: SanitizeOptions): HTMLInterface {
+	sanitize(options?: SanitizeOptions): HTML {
 		const outcome = attempt(() => {
 			const elements = new Set(options?.elements ?? SAFE_ELEMENTS)
 			const attributes = new Set(options?.attributes ?? SAFE_ATTRIBUTES)
 			const schemes = new Set(options?.schemes ?? SAFE_URL_SCHEMES)
 			const comments = options?.comments ?? false
-			return new HTML(
-				pruneDocument(this.#document, (node) =>
-					this.#cleanNode(node, elements, attributes, schemes, comments),
+			const derivations = new Map<HTMLNode, HTMLNode>()
+			return this.#derive(
+				pruneDocument(
+					this.#document,
+					(node) => this.#cleanNode(node, elements, attributes, schemes, comments),
+					derivations,
 				),
+				derivations,
 			)
 		})
-		return outcome.success ? outcome.value : new HTML('')
+		return outcome.success ? outcome.value : new HTML({ category: 'document', children: [] })
 	}
 
 	/**
@@ -253,16 +272,57 @@ export class HTML implements HTMLInterface {
 	 * renderHTML(article.document) // canonical HTML, links absolute
 	 * ```
 	 */
-	distill(options?: DistillOptions): HTMLInterface {
+	distill(options?: DistillOptions): HTML {
 		const outcome = attempt(() => {
 			const boilerplate = new Set(options?.boilerplate ?? BOILERPLATE_ELEMENTS)
 			const elements = new Set(options?.elements ?? CONTENT_ELEMENTS)
 			const base = options?.base
-			const visible = pruneDocument(this.#document, (node) => this.#pruneRegion(node, boilerplate))
-			const rooted = extractRegion(new HTML(visible).sanitize().document, REGION_ELEMENTS)
-			return new HTML(pruneDocument(rooted, (node) => this.#keepContent(node, elements, base)))
+			const visibleDerivations = new Map<HTMLNode, HTMLNode>()
+			const visible = this.#derive(
+				pruneDocument(
+					this.#document,
+					(node) => this.#pruneRegion(node, boilerplate),
+					visibleDerivations,
+				),
+				visibleDerivations,
+			)
+			const clean = visible.sanitize()
+			const regionDerivations = new Map<HTMLNode, HTMLNode>()
+			const rooted = clean.#derive(
+				extractRegion(clean.document, REGION_ELEMENTS, regionDerivations),
+				regionDerivations,
+			)
+			const contentDerivations = new Map<HTMLNode, HTMLNode>()
+			return rooted.#derive(
+				pruneDocument(
+					rooted.document,
+					(node) => this.#keepContent(node, elements, base, contentDerivations),
+					contentDerivations,
+				),
+				contentDerivations,
+			)
 		})
-		return outcome.success ? outcome.value : new HTML('')
+		return outcome.success ? outcome.value : new HTML({ category: 'document', children: [] })
+	}
+
+	// Creates a fresh handle and resolves each carried node through this operation's
+	// one-source derivation chain. Shared references resolve directly by identity.
+	#derive(document: HTMLDocument, derivations: ReadonlyMap<HTMLNode, HTMLNode>): HTML {
+		const derived = new HTML(document)
+		for (const node of walkNodes(document)) {
+			let source: HTMLNode | undefined = node
+			const visited = new WeakSet<object>()
+			while (source !== undefined && !visited.has(source)) {
+				visited.add(source)
+				const span = this.#spans.get(source)
+				if (span !== undefined) {
+					derived.#spans.set(node, span)
+					break
+				}
+				source = derivations.get(source)
+			}
+		}
+		return derived
 	}
 
 	// The sanitize policy for one node, applied bottom-up by `pruneDocument`, which hands the
@@ -329,9 +389,15 @@ export class HTML implements HTMLInterface {
 		node: HTMLNode,
 		elements: ReadonlySet<string>,
 		base: string | undefined,
+		derivations: Map<HTMLNode, HTMLNode>,
 	): readonly HTMLNode[] {
 		if (node.category === 'document') {
-			return [{ category: 'document', children: collapseText(mergeText(node.children)) }]
+			return [
+				{
+					category: 'document',
+					children: collapseText(mergeText(node.children), derivations),
+				},
+			]
 		}
 		if (node.category === 'text') return [node]
 		if (node.category !== 'element') return []
@@ -339,7 +405,7 @@ export class HTML implements HTMLInterface {
 		if (!elements.has(name)) return node.children
 		const merged = mergeText(node.children)
 		const literal = name === 'pre' || name === 'code'
-		const content = literal ? merged : collapseText(merged)
+		const content = literal ? merged : collapseText(merged, derivations)
 		const childless = VOID_ELEMENTS.includes(name)
 		const kept: ElementNode = {
 			category: 'element',

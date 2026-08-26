@@ -21,6 +21,7 @@ import {
 	isElementNode,
 	isHTMLDocument,
 	isTextNode,
+	parseHTMLSource,
 	parseDocument,
 	renderHTML,
 	renderText,
@@ -73,6 +74,116 @@ describe('HTML - document', () => {
 		const page = new HTML('<p>Body</p>')
 		expect(page.document).toBe(page.document)
 		expect(isHTMLDocument(page.document)).toBe(true)
+	})
+})
+
+describe('HTML - span', () => {
+	it('reports original-input slices for every parsed node category', () => {
+		const source = '<!DOCTYPE html>\r\n𝕏<p>A\r\nB</p><!--note-->'
+		const page = new HTML(source)
+		const slices = [...page.walk()].map((node) => {
+			const span = page.span(node)
+			if (span === undefined) throw new Error('expected parsed provenance')
+			return parseHTMLSource(source.slice(span.start, span.end))[0]
+		})
+		expect(slices).toEqual([
+			'<!DOCTYPE html>\n𝕏<p>A\nB</p><!--note-->',
+			'<!DOCTYPE html>',
+			'\n𝕏',
+			'<p>A\nB</p>',
+			'A\nB',
+			'<!--note-->',
+		])
+	})
+
+	it('reports original offsets after collapsed CRLF pairs and astral code units', () => {
+		const source = '𝕏\r\n<p>x</p>'
+		const page = new HTML(source)
+		const paragraph = page.find((node) => node.category === 'element' && node.name === 'p')
+		if (paragraph === undefined) throw new Error('expected paragraph')
+		expect(page.span(paragraph)).toEqual({ start: 4, end: 12 })
+		expect(page.span(paragraph)?.start).not.toBe(3)
+	})
+
+	it('ends unclosed elements at EOF or the implied closer boundary', () => {
+		const unfinished = new HTML('<div><p>x')
+		expect(unfinished.filter(isElementNode).map((node) => unfinished.span(node))).toEqual([
+			{ start: 0, end: 9 },
+			{ start: 5, end: 9 },
+		])
+
+		const implied = new HTML('<p>x<div>y</div>')
+		expect(implied.filter(isElementNode).map((node) => implied.span(node))).toEqual([
+			{ start: 0, end: 4 },
+			{ start: 4, end: 16 },
+		])
+	})
+
+	it('returns undefined for adopted, foreign, and synthesized nodes', () => {
+		const adoptedDocument: HTMLDocument = {
+			category: 'document',
+			children: [{ category: 'text', value: 'adopted' }],
+		}
+		const adopted = new HTML(adoptedDocument)
+		expect([...adopted.walk()].map((node) => adopted.span(node))).toEqual([undefined, undefined])
+
+		const first = new HTML('<p>first</p>')
+		const second = new HTML('<p>second</p>')
+		expect(first.span(second.document)).toBeUndefined()
+
+		const joined = new HTML('<p>A<span>B</span>C</p>').sanitize({ elements: ['p'] })
+		const text = joined.find(isTextNode)
+		if (text === undefined) throw new Error('expected joined text')
+		expect(text.value).toBe('ABC')
+		expect(joined.span(text)).toBeUndefined()
+	})
+
+	it('propagates shared, rebuilt, reparsed, and re-rooted provenance', () => {
+		const source = '<!DOCTYPE html><main><pre> raw </pre><p class="x">A</p><!--note--></main>'
+		const page = new HTML(source)
+		const clean = page.sanitize({ comments: true })
+		const cleanSlices = [...clean.walk()].map((node) => {
+			const span = clean.span(node)
+			if (span === undefined) throw new Error('expected sanitized provenance')
+			return source.slice(span.start, span.end)
+		})
+		expect(cleanSlices).toEqual([
+			source,
+			'<!DOCTYPE html>',
+			'<main><pre> raw </pre><p class="x">A</p><!--note--></main>',
+			'<pre> raw </pre>',
+			' raw ',
+			'<p class="x">A</p>',
+			'A',
+			'<!--note-->',
+		])
+		const originalComment = page.find((node) => node.category === 'comment')
+		const cleanComment = clean.find((node) => node.category === 'comment')
+		if (originalComment === undefined || cleanComment === undefined) {
+			throw new Error('expected comments')
+		}
+		expect(cleanComment).not.toBe(originalComment)
+		expect(clean.span(cleanComment)).toEqual(page.span(originalComment))
+
+		const distilled = page.distill()
+		const distilledSlices = [...distilled.walk()].flatMap((node) => {
+			const span = distilled.span(node)
+			return span === undefined ? [] : [source.slice(span.start, span.end)]
+		})
+		expect(distilledSlices).toEqual([
+			'<main><pre> raw </pre><p class="x">A</p><!--note--></main>',
+			'<pre> raw </pre>',
+			' raw ',
+			'<p class="x">A</p>',
+			'A',
+		])
+	})
+
+	it('carries root provenance through an identity map', () => {
+		const page = new HTML('<div><p>x</p></div>')
+		const rewritten = page.map((node) => node)
+		expect(rewritten.document).toBe(page.document)
+		expect(rewritten.span(rewritten.document)).toEqual(page.span(page.document))
 	})
 })
 

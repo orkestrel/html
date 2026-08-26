@@ -8,6 +8,7 @@ import type {
 	HTMLNode,
 	HTMLPruneHandler,
 	HTMLRewriteHandler,
+	HTMLSpan,
 	HTMLStartTag,
 	HTMLTag,
 	TextNode,
@@ -489,6 +490,7 @@ export function scanDoctype(
  * @param offset - The first content offset after the start tag
  * @param name - The lowercased element name
  * @param entities - Whether to decode character references
+ * @param spans - An optional recorder populated with source regions for constructed text nodes
  * @returns The single text child, next offset, and whether a complete close was found
  */
 export function scanRawText(
@@ -496,6 +498,7 @@ export function scanRawText(
 	offset: number,
 	name: string,
 	entities = false,
+	spans?: Map<HTMLNode, HTMLSpan>,
 ): { readonly node: TextNode; readonly next: number; readonly closed: boolean } {
 	const marker = `</${lowercaseASCII(name)}`
 	let search = offset
@@ -511,8 +514,13 @@ export function scanRawText(
 			const end = html.indexOf('>', candidate + marker.length)
 			if (end < 0) break
 			const value = html.slice(offset, candidate)
+			const node: TextNode = {
+				category: 'text',
+				value: entities ? decodeEntities(value) : value,
+			}
+			spans?.set(node, { start: offset, end: candidate })
 			return {
-				node: { category: 'text', value: entities ? decodeEntities(value) : value },
+				node,
 				next: end + 1,
 				closed: true,
 			}
@@ -520,8 +528,13 @@ export function scanRawText(
 		search = candidate + marker.length
 	}
 	const value = html.slice(offset)
+	const node: TextNode = {
+		category: 'text',
+		value: entities ? decodeEntities(value) : value,
+	}
+	spans?.set(node, { start: offset, end: html.length })
 	return {
-		node: { category: 'text', value: entities ? decodeEntities(value) : value },
+		node,
 		next: html.length,
 		closed: false,
 	}
@@ -1180,9 +1193,14 @@ export function foldNode<T>(node: HTMLNode, handlers: HTMLHandlers<T>): T {
  *
  * @param document - The document to rewrite
  * @param rewrite - The bottom-up rewrite handler
+ * @param derivations - An optional recorder mapping each rebuilt node to its single source
  * @returns The rewritten document, or the input document if rewriting throws
  */
-export function rewriteDocument(document: HTMLDocument, rewrite: HTMLRewriteHandler): HTMLDocument {
+export function rewriteDocument(
+	document: HTMLDocument,
+	rewrite: HTMLRewriteHandler,
+	derivations?: Map<HTMLNode, HTMLNode>,
+): HTMLDocument {
 	try {
 		const stack: Array<{
 			readonly node: HTMLNode
@@ -1243,9 +1261,11 @@ export function rewriteDocument(document: HTMLDocument, rewrite: HTMLRewriteHand
 									attributes: current.attributes,
 									children,
 								}
+					derivations?.set(candidate, current)
 				}
 			}
 			const rewritten = rewrite(candidate)
+			if (rewritten !== candidate) derivations?.set(rewritten, current)
 			if (stack.length === 0) {
 				return rewritten.category === 'document'
 					? rewritten
@@ -1306,18 +1326,24 @@ export function mergeText(children: readonly HTMLNode[]): readonly HTMLNode[] {
  * `pre` or `code` body verbatim while the surrounding prose collapses.
  *
  * @param children - The sibling list whose text children are collapsed
+ * @param derivations - An optional recorder mapping each collapsed text node to its source
  * @returns The list with each text child's whitespace collapsed
  */
-export function collapseText(children: readonly HTMLNode[]): readonly HTMLNode[] {
+export function collapseText(
+	children: readonly HTMLNode[],
+	derivations?: Map<HTMLNode, HTMLNode>,
+): readonly HTMLNode[] {
 	try {
 		const collapsed: HTMLNode[] = []
 		for (const child of children) {
 			if (child === undefined) continue
-			collapsed.push(
-				child.category === 'text'
-					? { category: 'text', value: child.value.replace(/\s+/g, ' ') }
-					: child,
-			)
+			if (child.category !== 'text') {
+				collapsed.push(child)
+				continue
+			}
+			const text: TextNode = { category: 'text', value: child.value.replace(/\s+/g, ' ') }
+			collapsed.push(text)
+			derivations?.set(text, child)
 		}
 		return collapsed
 	} catch {
@@ -1336,9 +1362,14 @@ export function collapseText(children: readonly HTMLNode[]): readonly HTMLNode[]
  *
  * @param document - The document to re-root
  * @param names - The candidate region element names, most specific first
+ * @param derivations - An optional recorder mapping a new root to its source region
  * @returns The re-rooted document, or the original when no region qualifies
  */
-export function extractRegion(document: HTMLDocument, names: readonly string[]): HTMLDocument {
+export function extractRegion(
+	document: HTMLDocument,
+	names: readonly string[],
+	derivations?: Map<HTMLNode, HTMLNode>,
+): HTMLDocument {
 	try {
 		for (const name of names) {
 			const expected = name.toLowerCase()
@@ -1351,7 +1382,9 @@ export function extractRegion(document: HTMLDocument, names: readonly string[]):
 				region = node
 			}
 			if (count === 1 && region !== undefined) {
-				return { category: 'document', children: region.children }
+				const rooted: HTMLDocument = { category: 'document', children: region.children }
+				derivations?.set(rooted, region)
+				return rooted
 			}
 		}
 		return document
@@ -1377,9 +1410,14 @@ export function extractRegion(document: HTMLDocument, names: readonly string[]):
  *
  * @param document - The document to rebuild
  * @param prune - The bottom-up handler mapping one node to the nodes that replace it
+ * @param derivations - An optional recorder mapping each one-source rebuild to its source
  * @returns The rebuilt document, or an empty document if pruning throws
  */
-export function pruneDocument(document: HTMLDocument, prune: HTMLPruneHandler): HTMLDocument {
+export function pruneDocument(
+	document: HTMLDocument,
+	prune: HTMLPruneHandler,
+	derivations?: Map<HTMLNode, HTMLNode>,
+): HTMLDocument {
 	try {
 		const stack: Array<{
 			readonly node: HTMLNode
@@ -1441,9 +1479,20 @@ export function pruneDocument(document: HTMLDocument, prune: HTMLPruneHandler): 
 									attributes: current.attributes,
 									children,
 								}
+					derivations?.set(candidate, current)
 				}
 			}
 			const replacements = prune(candidate)
+			if (replacements.length === 1) {
+				const replacement = replacements[0]
+				const child =
+					replacement !== undefined &&
+					(candidate.category === 'document' || candidate.category === 'element') &&
+					candidate.children.includes(replacement)
+				if (replacement !== undefined && replacement !== candidate && !child) {
+					derivations?.set(replacement, current)
+				}
+			}
 			if (stack.length === 0) {
 				const root = replacements[0]
 				if (root !== undefined && root.category === 'document') return root

@@ -1,5 +1,13 @@
 import type { ElementNode, HTMLDocument } from '@src/core'
-import { MAX_DEPTH, isHTMLDocument, parseDocument, renderHTML, walkNodes } from '@src/core'
+import {
+	MAX_DEPTH,
+	isHTMLDocument,
+	parseDocument,
+	parseHTMLSource,
+	parseHTMLSpan,
+	renderHTML,
+	walkNodes,
+} from '@src/core'
 import { bench, describe, expect, it } from 'vitest'
 import {
 	buildDeepHTMLInput,
@@ -13,6 +21,13 @@ import {
 } from '../../setup.js'
 
 describe('parseDocument recovery table', () => {
+	it('maps normalized boundaries back to original UTF-16 offsets', () => {
+		const [source, offsets] = parseHTMLSource('A\r\n𝕏\r\0B')
+		expect(source).toBe('A\n𝕏\n\uFFFDB')
+		expect(offsets).toEqual([0, 1, 3, 4, 5, 6, 7, 8])
+		expect(parseHTMLSpan(offsets, 2, 4)).toEqual({ start: 3, end: 5 })
+	})
+
 	it('void element start tags have empty children and stray closes are discarded', () => {
 		const document = parseDocument('<p>a<br>b</br>c<img src=x></p>')
 		const paragraph = document.children[0]

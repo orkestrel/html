@@ -1,4 +1,11 @@
-import type { ElementNode, HTMLDocument, HTMLHandlers, HTMLNode, HTMLStartTag } from '@src/core'
+import type {
+	ElementNode,
+	HTMLDocument,
+	HTMLHandlers,
+	HTMLNode,
+	HTMLSpan,
+	HTMLStartTag,
+} from '@src/core'
 import {
 	MAX_DEPTH,
 	NAMED_ENTITIES,
@@ -368,6 +375,12 @@ describe('scanning pieces', () => {
 			next: 12,
 			closed: false,
 		})
+	})
+
+	it('scanRawText records the exact source body boundary', () => {
+		const spans = new Map<HTMLNode, HTMLSpan>()
+		const recovered = scanRawText('a</script <fake>>tail', 0, 'script', false, spans)
+		expect(spans.get(recovered.node)).toEqual({ start: 0, end: 1 })
 	})
 })
 

@@ -151,6 +151,20 @@ export interface HTMLDocument {
 export type HTMLNode = HTMLDocument | ElementNode | TextNode | CommentNode | DoctypeNode
 
 /**
+ * A half-open region of the original HTML input, measured in UTF-16 code units.
+ *
+ * @remarks
+ * `start` is inclusive and `end` is exclusive. The coordinates address the string before
+ * parser normalization changes CRLF, carriage returns, or null characters.
+ */
+export interface HTMLSpan {
+	/** The inclusive original-input offset. */
+	readonly start: number
+	/** The exclusive original-input offset. */
+	readonly end: number
+}
+
+/**
  * A fold handler for one node category - receives the node and its children ALREADY
  * folded to `T`, and produces the node's own `T`. The building block of an
  * {@link HTMLHandlers} table.
@@ -297,6 +311,13 @@ export interface DistillOptions {
 export interface HTMLInterface {
 	/** The stored {@link HTMLDocument} AST root. */
 	readonly document: HTMLDocument
+	/**
+	 * Returns the original-input region that produced a node in this handle's tree.
+	 *
+	 * @param node - The node whose provenance to look up
+	 * @returns Its half-open original-input region, or `undefined` when no provenance exists
+	 */
+	span(node: HTMLNode): HTMLSpan | undefined
 	/**
 	 * THE deep traversal - a lazy, depth-first, pre-order, root-inclusive
 	 * {@link Generator} over every {@link HTMLNode} in the document. The sync
