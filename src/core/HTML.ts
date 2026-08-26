@@ -304,24 +304,24 @@ export class HTML implements HTMLInterface {
 
 	// Creates a fresh handle and resolves each carried node through this operation's
 	// one-source derivation chain. Unchanged references resolve directly by identity.
+	// The entry is read once, for the node being resolved, because a handler that hands
+	// back an original node gives that object an output entry of its own; every later hop
+	// reads its span first, so a reused original terminates the chain on its own region
+	// rather than following its unrelated output entry onto a foreign one.
 	#derive(document: HTMLDocument, derivations: ReadonlyMap<HTMLNode, HTMLNode | undefined>): HTML {
 		const derived = new HTML(document)
 		const visited = new Set<HTMLNode>()
 		for (const node of walkNodes(document)) {
 			visited.clear()
-			let source: HTMLNode | undefined = node
+			let source: HTMLNode | undefined = derivations.has(node) ? derivations.get(node) : node
 			while (source !== undefined && !visited.has(source)) {
 				visited.add(source)
-				if (derivations.has(source)) {
-					source = derivations.get(source)
-					continue
-				}
 				const span = this.#spans.get(source)
 				if (span !== undefined) {
 					derived.#spans.set(node, span)
 					break
 				}
-				source = undefined
+				source = derivations.get(source)
 			}
 		}
 		return derived

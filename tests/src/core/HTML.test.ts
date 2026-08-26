@@ -21,8 +21,8 @@ import {
 	isElementNode,
 	isHTMLDocument,
 	isTextNode,
-	parseDocument,
 	normalizeSource,
+	parseDocument,
 	renderHTML,
 	renderText,
 } from '@src/core'
@@ -196,6 +196,20 @@ describe('HTML - span', () => {
 		if (existing === undefined) throw new Error('expected text')
 		const reused = page.map((node) => (node.category === 'text' ? existing : node))
 		expect(reused.span(existing)).toBeUndefined()
+	})
+
+	it('keeps a rebuilt node on its own region while its sibling source is reused elsewhere', () => {
+		const page = new HTML('<i>a</i><b>b</b>')
+		const [first, second] = page.filter(isTextNode)
+		if (first === undefined || second === undefined) throw new Error('expected two texts')
+		expect(page.span(first)).toEqual({ start: 3, end: 4 })
+		const replacement: TextNode = { category: 'text', value: 'A' }
+		const mapped = page.map((node) =>
+			node === first ? replacement : node === second ? first : node,
+		)
+		const rebuilt = mapped.find((node) => node.category === 'text' && node.value === 'A')
+		if (rebuilt === undefined) throw new Error('expected the rebuilt node')
+		expect(mapped.span(rebuilt)).toEqual({ start: 3, end: 4 })
 	})
 })
 
