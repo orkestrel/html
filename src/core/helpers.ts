@@ -3,10 +3,12 @@ import type {
 	DoctypeNode,
 	ElementNode,
 	HTMLAttribute,
+	HTMLDerivation,
 	HTMLDocument,
 	HTMLHandlers,
 	HTMLNode,
 	HTMLPruneHandler,
+	HTMLRawText,
 	HTMLRewriteHandler,
 	HTMLSpan,
 	HTMLStartTag,
@@ -25,6 +27,53 @@ import {
 	VOID_ELEMENTS,
 } from './constants.js'
 import { isHTMLCodePoint } from './validators.js'
+
+/**
+ * Normalizes an HTML input and maps each normalized boundary to its original UTF-16 offset.
+ *
+ * @param html - The original HTML input
+ * @returns The normalized source and its boundary-to-original offset map
+ */
+export function normalizeSource(
+	html: string,
+): readonly [source: string, offsets: readonly number[]] {
+	let source = ''
+	const offsets: number[] = [0]
+	let index = 0
+	while (index < html.length) {
+		const character = html[index]
+		if (character === '\r') {
+			index += html[index + 1] === '\n' ? 2 : 1
+			source += '\n'
+			offsets.push(index)
+			continue
+		}
+		source += character === '\0' ? '\uFFFD' : (character ?? '')
+		index += 1
+		offsets.push(index)
+	}
+	return [source, offsets]
+}
+
+/**
+ * Projects a normalized half-open region through an original-input boundary map.
+ *
+ * @param offsets - The boundary map returned by {@link normalizeSource}
+ * @param start - The inclusive normalized-source offset
+ * @param end - The exclusive normalized-source offset
+ * @returns The matching original-input region
+ */
+export function projectSpan(
+	offsets: readonly number[],
+	start: number,
+	end: number,
+): HTMLSpan | undefined {
+	const originalStart = offsets[start]
+	const originalEnd = offsets[end]
+	return originalStart === undefined || originalEnd === undefined
+		? undefined
+		: { start: originalStart, end: originalEnd }
+}
 
 /**
  * Lowercase only ASCII uppercase characters, preserving every other code point exactly.
@@ -484,22 +533,20 @@ export function scanDoctype(
 }
 
 /**
- * Scan text through the case-insensitive matching close tag of a raw or literal element.
+ * Scans text through the case-insensitive matching close tag of a raw or literal element.
  *
  * @param html - The normalized HTML source
  * @param offset - The first content offset after the start tag
  * @param name - The lowercased element name
  * @param entities - Whether to decode character references
- * @param spans - An optional recorder populated with source regions for constructed text nodes
- * @returns The single text child, next offset, and whether a complete close was found
+ * @returns The text child, its source region, next offset, and whether a complete close was found
  */
 export function scanRawText(
 	html: string,
 	offset: number,
 	name: string,
 	entities = false,
-	spans?: Map<HTMLNode, HTMLSpan>,
-): { readonly node: TextNode; readonly next: number; readonly closed: boolean } {
+): HTMLRawText {
 	const marker = `</${lowercaseASCII(name)}`
 	let search = offset
 	while (search < html.length) {
@@ -518,9 +565,9 @@ export function scanRawText(
 				category: 'text',
 				value: entities ? decodeEntities(value) : value,
 			}
-			spans?.set(node, { start: offset, end: candidate })
 			return {
 				node,
+				span: { start: offset, end: candidate },
 				next: end + 1,
 				closed: true,
 			}
@@ -532,9 +579,9 @@ export function scanRawText(
 		category: 'text',
 		value: entities ? decodeEntities(value) : value,
 	}
-	spans?.set(node, { start: offset, end: html.length })
 	return {
 		node,
+		span: { start: offset, end: html.length },
 		next: html.length,
 		closed: false,
 	}
@@ -1184,7 +1231,7 @@ export function foldNode<T>(node: HTMLNode, handlers: HTMLHandlers<T>): T {
 }
 
 /**
- * Rewrite a document bottom-up with copy-on-write identity preservation.
+ * Rewrites a document bottom-up with copy-on-write identity preservation.
  *
  * @remarks
  * The handler receives children after their rewrites. A subtree whose descendants and
@@ -1193,14 +1240,15 @@ export function foldNode<T>(node: HTMLNode, handlers: HTMLHandlers<T>): T {
  *
  * @param document - The document to rewrite
  * @param rewrite - The bottom-up rewrite handler
- * @param derivations - An optional recorder mapping each rebuilt node to its single source
- * @returns The rewritten document, or the input document if rewriting throws
+ * @returns The rewritten document and its operation-owned derivations; the input document
+ * and an empty map if rewriting throws
  */
 export function rewriteDocument(
 	document: HTMLDocument,
 	rewrite: HTMLRewriteHandler,
-	derivations?: Map<HTMLNode, HTMLNode>,
-): HTMLDocument {
+): HTMLDerivation<HTMLDocument> {
+	const derivations = new Map<HTMLNode, HTMLNode | undefined>()
+	const outputs = new Map<HTMLNode, HTMLNode>()
 	try {
 		const stack: Array<{
 			readonly node: HTMLNode
@@ -1261,23 +1309,33 @@ export function rewriteDocument(
 									attributes: current.attributes,
 									children,
 								}
-					derivations?.set(candidate, current)
+					if (!derivations.has(candidate)) derivations.set(candidate, current)
+					else if (derivations.get(candidate) !== current) derivations.set(candidate, undefined)
 				}
 			}
 			const rewritten = rewrite(candidate)
-			if (rewritten !== candidate) derivations?.set(rewritten, current)
+			const source = outputs.get(rewritten)
+			if (source === undefined) outputs.set(rewritten, current)
+			else if (source !== current) derivations.set(rewritten, undefined)
+			if (rewritten !== candidate) {
+				if (!derivations.has(rewritten)) derivations.set(rewritten, current)
+				else if (derivations.get(rewritten) !== current) derivations.set(rewritten, undefined)
+			}
 			if (stack.length === 0) {
-				return rewritten.category === 'document'
-					? rewritten
-					: candidate.category === 'document'
-						? candidate
-						: document
+				return [
+					rewritten.category === 'document'
+						? rewritten
+						: candidate.category === 'document'
+							? candidate
+							: document,
+					derivations,
+				]
 			}
 			values.push(rewritten)
 		}
-		return document
+		return [document, derivations]
 	} catch {
-		return document
+		return [document, new Map()]
 	}
 }
 
@@ -1317,7 +1375,7 @@ export function mergeText(children: readonly HTMLNode[]): readonly HTMLNode[] {
 }
 
 /**
- * Collapse the whitespace runs inside each direct text child of a sibling list.
+ * Collapses the whitespace runs inside each direct text child of a sibling list.
  *
  * @remarks
  * Every run of whitespace becomes one space and edge whitespace is KEPT, because the space
@@ -1326,13 +1384,10 @@ export function mergeText(children: readonly HTMLNode[]): readonly HTMLNode[] {
  * `pre` or `code` body verbatim while the surrounding prose collapses.
  *
  * @param children - The sibling list whose text children are collapsed
- * @param derivations - An optional recorder mapping each collapsed text node to its source
- * @returns The list with each text child's whitespace collapsed
+ * @returns The collapsed list and its operation-owned derivations
  */
-export function collapseText(
-	children: readonly HTMLNode[],
-	derivations?: Map<HTMLNode, HTMLNode>,
-): readonly HTMLNode[] {
+export function collapseText(children: readonly HTMLNode[]): HTMLDerivation<readonly HTMLNode[]> {
+	const derivations = new Map<HTMLNode, HTMLNode | undefined>()
 	try {
 		const collapsed: HTMLNode[] = []
 		for (const child of children) {
@@ -1343,16 +1398,16 @@ export function collapseText(
 			}
 			const text: TextNode = { category: 'text', value: child.value.replace(/\s+/g, ' ') }
 			collapsed.push(text)
-			derivations?.set(text, child)
+			derivations.set(text, child)
 		}
-		return collapsed
+		return [collapsed, derivations]
 	} catch {
-		return children
+		return [children, new Map()]
 	}
 }
 
 /**
- * Re-root a document at the sole occurrence of one of the named region elements.
+ * Re-roots a document at the sole occurrence of one of the named region elements.
  *
  * @remarks
  * The names are tried in order and the first one occurring EXACTLY once in the document
@@ -1362,14 +1417,13 @@ export function collapseText(
  *
  * @param document - The document to re-root
  * @param names - The candidate region element names, most specific first
- * @param derivations - An optional recorder mapping a new root to its source region
- * @returns The re-rooted document, or the original when no region qualifies
+ * @returns The re-rooted document and its operation-owned derivations
  */
 export function extractRegion(
 	document: HTMLDocument,
 	names: readonly string[],
-	derivations?: Map<HTMLNode, HTMLNode>,
-): HTMLDocument {
+): HTMLDerivation<HTMLDocument> {
+	const derivations = new Map<HTMLNode, HTMLNode | undefined>()
 	try {
 		for (const name of names) {
 			const expected = name.toLowerCase()
@@ -1383,18 +1437,18 @@ export function extractRegion(
 			}
 			if (count === 1 && region !== undefined) {
 				const rooted: HTMLDocument = { category: 'document', children: region.children }
-				derivations?.set(rooted, region)
-				return rooted
+				derivations.set(rooted, region)
+				return [rooted, derivations]
 			}
 		}
-		return document
+		return [document, derivations]
 	} catch {
-		return document
+		return [document, new Map()]
 	}
 }
 
 /**
- * Rebuild a document bottom-up, letting each node become any number of nodes.
+ * Rebuilds a document bottom-up, letting each node become any number of nodes.
  *
  * @remarks
  * The dual of {@link rewriteDocument}: a rewrite maps one node to one node, while a prune
@@ -1410,14 +1464,14 @@ export function extractRegion(
  *
  * @param document - The document to rebuild
  * @param prune - The bottom-up handler mapping one node to the nodes that replace it
- * @param derivations - An optional recorder mapping each one-source rebuild to its source
- * @returns The rebuilt document, or an empty document if pruning throws
+ * @returns The rebuilt document and its operation-owned derivations, or an empty document
+ * and empty map if pruning throws
  */
 export function pruneDocument(
 	document: HTMLDocument,
 	prune: HTMLPruneHandler,
-	derivations?: Map<HTMLNode, HTMLNode>,
-): HTMLDocument {
+): HTMLDerivation<HTMLDocument> {
+	const derivations = new Map<HTMLNode, HTMLNode | undefined>()
 	try {
 		const stack: Array<{
 			readonly node: HTMLNode
@@ -1479,7 +1533,8 @@ export function pruneDocument(
 									attributes: current.attributes,
 									children,
 								}
-					derivations?.set(candidate, current)
+					if (!derivations.has(candidate)) derivations.set(candidate, current)
+					else if (derivations.get(candidate) !== current) derivations.set(candidate, undefined)
 				}
 			}
 			const replacements = prune(candidate)
@@ -1490,20 +1545,23 @@ export function pruneDocument(
 					(candidate.category === 'document' || candidate.category === 'element') &&
 					candidate.children.includes(replacement)
 				if (replacement !== undefined && replacement !== candidate && !child) {
-					derivations?.set(replacement, current)
+					if (!derivations.has(replacement)) derivations.set(replacement, current)
+					else if (derivations.get(replacement) !== current) {
+						derivations.set(replacement, undefined)
+					}
 				}
 			}
 			if (stack.length === 0) {
 				const root = replacements[0]
-				if (root !== undefined && root.category === 'document') return root
+				if (root !== undefined && root.category === 'document') return [root, derivations]
 				const rest: HTMLNode[] = []
 				for (const node of replacements) if (node.category !== 'document') rest.push(node)
-				return { category: 'document', children: rest }
+				return [{ category: 'document', children: rest }, derivations]
 			}
 			results.push(replacements)
 		}
-		return { category: 'document', children: [] }
+		return [{ category: 'document', children: [] }, derivations]
 	} catch {
-		return { category: 'document', children: [] }
+		return [{ category: 'document', children: [] }, new Map()]
 	}
 }

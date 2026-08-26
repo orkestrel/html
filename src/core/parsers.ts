@@ -1,4 +1,11 @@
-import type { ElementNode, HTMLDocument, HTMLNode, HTMLSpan, TextNode } from './types.js'
+import type {
+	ElementNode,
+	HTMLDocument,
+	HTMLNode,
+	HTMLParseResult,
+	HTMLSpan,
+	TextNode,
+} from './types.js'
 import {
 	IMPLIED_CLOSERS,
 	LITERAL_ELEMENTS,
@@ -9,6 +16,8 @@ import {
 import {
 	decodeEntities,
 	lowercaseASCII,
+	normalizeSource,
+	projectSpan,
 	scanComment,
 	scanDoctype,
 	scanRawText,
@@ -16,14 +25,24 @@ import {
 } from './helpers.js'
 
 /**
- * Parse an HTML string into a total, depth-bounded document AST.
+ * Parses an HTML string into a total, depth-bounded document AST.
  *
  * @param html - The HTML page or fragment source
- * @param spans - An optional recorder populated with original-input node regions
  * @returns The parsed document; malformed input recovers without throwing
  */
-export function parseDocument(html: string, spans?: Map<HTMLNode, HTMLSpan>): HTMLDocument {
-	const [source, offsets] = parseHTMLSource(html)
+export function parseDocument(html: string): HTMLDocument {
+	return parseProvenance(html)[0]
+}
+
+/**
+ * Parses an HTML string with original-input node regions.
+ *
+ * @param html - The HTML page or fragment source
+ * @returns The parsed document and its operation-owned spans
+ */
+export function parseProvenance(html: string): HTMLParseResult {
+	const [source, offsets] = normalizeSource(html)
+	const spans = new Map<HTMLNode, HTMLSpan>()
 	const children: HTMLNode[] = []
 	const siblingLists: HTMLNode[][] = [children]
 	const stack: Array<{
@@ -35,7 +54,6 @@ export function parseDocument(html: string, spans?: Map<HTMLNode, HTMLSpan>): HT
 	const stackPositions = new Map<string, number[]>()
 	const overflow: string[] = []
 	const overflowPositions = new Map<string, number[]>()
-	const rawSpans = spans === undefined ? undefined : new Map<HTMLNode, HTMLSpan>()
 	let index = 0
 	while (index < source.length) {
 		const tokenStart = index
@@ -48,7 +66,8 @@ export function parseDocument(html: string, spans?: Map<HTMLNode, HTMLSpan>): HT
 			if (value.length > 0) {
 				const node: TextNode = { category: 'text', value }
 				parent.children.push(node)
-				spans?.set(node, parseHTMLSpan(offsets, index, end))
+				const span = projectSpan(offsets, index, end)
+				if (span !== undefined) spans.set(node, span)
 			}
 			index = end
 			continue
@@ -57,7 +76,8 @@ export function parseDocument(html: string, spans?: Map<HTMLNode, HTMLSpan>): HT
 			const comment = scanComment(source, index)
 			if (comment !== undefined) {
 				parent.children.push(comment.node)
-				spans?.set(comment.node, parseHTMLSpan(offsets, index, comment.next))
+				const span = projectSpan(offsets, index, comment.next)
+				if (span !== undefined) spans.set(comment.node, span)
 				index = comment.next
 				continue
 			}
@@ -66,7 +86,8 @@ export function parseDocument(html: string, spans?: Map<HTMLNode, HTMLSpan>): HT
 			const doctype = scanDoctype(source, index)
 			if (doctype !== undefined) {
 				parent.children.push(doctype.node)
-				spans?.set(doctype.node, parseHTMLSpan(offsets, index, doctype.next))
+				const span = projectSpan(offsets, index, doctype.next)
+				if (span !== undefined) spans.set(doctype.node, span)
 				index = doctype.next
 				continue
 			}
@@ -79,7 +100,8 @@ export function parseDocument(html: string, spans?: Map<HTMLNode, HTMLSpan>): HT
 			const comment = scanComment(source, index)
 			if (comment !== undefined) {
 				parent.children.push(comment.node)
-				spans?.set(comment.node, parseHTMLSpan(offsets, index, comment.next))
+				const span = projectSpan(offsets, index, comment.next)
+				if (span !== undefined) spans.set(comment.node, span)
 				index = comment.next
 				continue
 			}
@@ -90,7 +112,8 @@ export function parseDocument(html: string, spans?: Map<HTMLNode, HTMLSpan>): HT
 		if (!tagLike) {
 			const node: TextNode = { category: 'text', value: '<' }
 			parent.children.push(node)
-			spans?.set(node, parseHTMLSpan(offsets, index, index + 1))
+			const span = projectSpan(offsets, index, index + 1)
+			if (span !== undefined) spans.set(node, span)
 			index += 1
 			continue
 		}
@@ -151,7 +174,8 @@ export function parseDocument(html: string, spans?: Map<HTMLNode, HTMLSpan>): HT
 			if (removed === undefined) continue
 			if (removed.element !== undefined) {
 				const end = tag.closing && removed.name === tag.name ? tag.next : tokenStart
-				spans?.set(removed.element, parseHTMLSpan(offsets, removed.start, end))
+				const span = projectSpan(offsets, removed.start, end)
+				if (span !== undefined) spans.set(removed.element, span)
 			}
 			const positions = stackPositions.get(removed.name)
 			positions?.pop()
@@ -161,14 +185,7 @@ export function parseDocument(html: string, spans?: Map<HTMLNode, HTMLSpan>): HT
 		const current = stack[stack.length - 1]
 		if (current === undefined) break
 		if (RAW_ELEMENTS.includes(tag.name) || LITERAL_ELEMENTS.includes(tag.name)) {
-			const raw = scanRawText(
-				source,
-				index,
-				tag.name,
-				LITERAL_ELEMENTS.includes(tag.name),
-				rawSpans,
-			)
-			const rawSpan = rawSpans?.get(raw.node)
+			const raw = scanRawText(source, index, tag.name, LITERAL_ELEMENTS.includes(tag.name))
 			if (stack.length <= MAX_DEPTH) {
 				const element: ElementNode = {
 					category: 'element',
@@ -177,17 +194,15 @@ export function parseDocument(html: string, spans?: Map<HTMLNode, HTMLSpan>): HT
 					children: [raw.node],
 				}
 				current.children.push(element)
-				if (rawSpan !== undefined) {
-					spans?.set(raw.node, parseHTMLSpan(offsets, rawSpan.start, rawSpan.end))
-				}
-				spans?.set(element, parseHTMLSpan(offsets, tokenStart, raw.next))
+				const rawSpan = projectSpan(offsets, raw.span.start, raw.span.end)
+				if (rawSpan !== undefined) spans.set(raw.node, rawSpan)
+				const elementSpan = projectSpan(offsets, tokenStart, raw.next)
+				if (elementSpan !== undefined) spans.set(element, elementSpan)
 			} else {
 				current.children.push(raw.node)
-				if (rawSpan !== undefined) {
-					spans?.set(raw.node, parseHTMLSpan(offsets, rawSpan.start, rawSpan.end))
-				}
+				const rawSpan = projectSpan(offsets, raw.span.start, raw.span.end)
+				if (rawSpan !== undefined) spans.set(raw.node, rawSpan)
 			}
-			rawSpans?.delete(raw.node)
 			index = raw.next
 			continue
 		}
@@ -200,7 +215,8 @@ export function parseDocument(html: string, spans?: Map<HTMLNode, HTMLSpan>): HT
 					children: [],
 				}
 				current.children.push(element)
-				spans?.set(element, parseHTMLSpan(offsets, tokenStart, tag.next))
+				const span = projectSpan(offsets, tokenStart, tag.next)
+				if (span !== undefined) spans.set(element, span)
 			}
 			continue
 		}
@@ -234,7 +250,8 @@ export function parseDocument(html: string, spans?: Map<HTMLNode, HTMLSpan>): HT
 	while (stack.length > 1) {
 		const removed = stack.pop()
 		if (removed?.element !== undefined) {
-			spans?.set(removed.element, parseHTMLSpan(offsets, removed.start, source.length))
+			const span = projectSpan(offsets, removed.start, source.length)
+			if (span !== undefined) spans.set(removed.element, span)
 		}
 	}
 	for (const siblings of siblingLists) {
@@ -253,10 +270,10 @@ export function parseDocument(html: string, spans?: Map<HTMLNode, HTMLSpan>): HT
 				siblings[write] = merged
 				const first = text[0]
 				const last = text[text.length - 1]
-				const start = first === undefined ? undefined : spans?.get(first)?.start
-				const end = last === undefined ? undefined : spans?.get(last)?.end
-				if (start !== undefined && end !== undefined) spans?.set(merged, { start, end })
-				for (const node of text) spans?.delete(node)
+				const start = first === undefined ? undefined : spans.get(first)?.start
+				const end = last === undefined ? undefined : spans.get(last)?.end
+				if (start !== undefined && end !== undefined) spans.set(merged, { start, end })
+				for (const node of text) spans.delete(node)
 				write += 1
 				text.length = 0
 			}
@@ -271,55 +288,16 @@ export function parseDocument(html: string, spans?: Map<HTMLNode, HTMLSpan>): HT
 			siblings[write] = merged
 			const first = text[0]
 			const last = text[text.length - 1]
-			const start = first === undefined ? undefined : spans?.get(first)?.start
-			const end = last === undefined ? undefined : spans?.get(last)?.end
-			if (start !== undefined && end !== undefined) spans?.set(merged, { start, end })
-			for (const node of text) spans?.delete(node)
+			const start = first === undefined ? undefined : spans.get(first)?.start
+			const end = last === undefined ? undefined : spans.get(last)?.end
+			if (start !== undefined && end !== undefined) spans.set(merged, { start, end })
+			for (const node of text) spans.delete(node)
 			write += 1
 		}
 		siblings.length = write
 	}
 	const document: HTMLDocument = { category: 'document', children }
-	spans?.set(document, parseHTMLSpan(offsets, 0, source.length))
-	return document
-}
-
-/**
- * Normalize an HTML input and map every normalized boundary to its original UTF-16 offset.
- *
- * @param html - The original HTML input
- * @returns The normalized source and its boundary-to-original offset map
- */
-export function parseHTMLSource(
-	html: string,
-): readonly [source: string, offsets: readonly number[]] {
-	let source = ''
-	const offsets: number[] = [0]
-	let index = 0
-	while (index < html.length) {
-		const character = html[index]
-		if (character === '\r') {
-			index += html[index + 1] === '\n' ? 2 : 1
-			source += '\n'
-			offsets.push(index)
-			continue
-		}
-		source += character === '\0' ? '\uFFFD' : (character ?? '')
-		index += 1
-		offsets.push(index)
-	}
-	return [source, offsets]
-}
-
-/**
- * Project a normalized half-open region through an original-input boundary map.
- *
- * @param offsets - The boundary map returned by {@link parseHTMLSource}
- * @param start - The inclusive normalized-source offset
- * @param end - The exclusive normalized-source offset
- * @returns The matching original-input region
- */
-export function parseHTMLSpan(offsets: readonly number[], start: number, end: number): HTMLSpan {
-	const originalStart = offsets[start] ?? 0
-	return { start: originalStart, end: offsets[end] ?? originalStart }
+	const span = projectSpan(offsets, 0, source.length)
+	if (span !== undefined) spans.set(document, span)
+	return [document, spans]
 }

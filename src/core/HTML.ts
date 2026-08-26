@@ -1,6 +1,7 @@
 import type {
 	DistillOptions,
 	ElementNode,
+	HTMLDerivation,
 	HTMLDocument,
 	HTMLHandlers,
 	HTMLInterface,
@@ -33,7 +34,7 @@ import {
 	sanitizeAttributes,
 	walkNodes,
 } from './helpers.js'
-import { parseDocument } from './parsers.js'
+import { parseDocument, parseProvenance } from './parsers.js'
 import { isEmptyElement } from './validators.js'
 
 /**
@@ -42,7 +43,7 @@ import { isEmptyElement } from './validators.js'
  * document-shaping (`sanitize` / `distill`) operations {@link HTMLInterface} declares.
  *
  * @remarks
- * - **Construction.** Given a `string`, the constructor runs {@link parseDocument}, which is
+ * - **Construction.** Given a `string`, the constructor runs {@link parseProvenance}, which is
  *   total: every input parses, so there is nothing to catch. Given an {@link HTMLDocument},
  *   that document is adopted AS-IS and is NOT re-validated - gate an untrusted value with
  *   `isHTMLDocument` first.
@@ -70,8 +71,14 @@ export class HTML implements HTMLInterface {
 	readonly #spans: Map<HTMLNode, HTMLSpan>
 
 	constructor(input: string | HTMLDocument) {
-		this.#spans = new Map()
-		this.#document = typeof input === 'string' ? parseDocument(input, this.#spans) : input
+		if (typeof input === 'string') {
+			const [document, spans] = parseProvenance(input)
+			this.#document = document
+			this.#spans = new Map(spans)
+		} else {
+			this.#document = input
+			this.#spans = new Map()
+		}
 	}
 
 	/** The stored {@link HTMLDocument} AST root. */
@@ -132,14 +139,14 @@ export class HTML implements HTMLInterface {
 	/**
 	 * Rewrites the AST bottom-up (copy-on-write) and returns a NEW {@link HTML}. A rewrite
 	 * that returns its node unchanged shares that subtree instead of copying it, so an
-	 * identity rewrite allocates nothing.
+	 * identity rewrite copies no node.
 	 *
 	 * @param rewrite - The bottom-up node rewrite
 	 * @returns A new handle over the rewritten document
 	 */
 	map(rewrite: HTMLRewriteHandler): HTML {
-		const derivations = new Map<HTMLNode, HTMLNode>()
-		return this.#derive(rewriteDocument(this.#document, rewrite, derivations), derivations)
+		const [document, derivations] = rewriteDocument(this.#document, rewrite)
+		return this.#derive(document, derivations)
 	}
 
 	/**
@@ -230,15 +237,10 @@ export class HTML implements HTMLInterface {
 			const attributes = new Set(options?.attributes ?? SAFE_ATTRIBUTES)
 			const schemes = new Set(options?.schemes ?? SAFE_URL_SCHEMES)
 			const comments = options?.comments ?? false
-			const derivations = new Map<HTMLNode, HTMLNode>()
-			return this.#derive(
-				pruneDocument(
-					this.#document,
-					(node) => this.#cleanNode(node, elements, attributes, schemes, comments),
-					derivations,
-				),
-				derivations,
+			const [document, derivations] = pruneDocument(this.#document, (node) =>
+				this.#cleanNode(node, elements, attributes, schemes, comments),
 			)
+			return this.#derive(document, derivations)
 		})
 		return outcome.success ? outcome.value : new HTML({ category: 'document', children: [] })
 	}
@@ -277,49 +279,49 @@ export class HTML implements HTMLInterface {
 			const boilerplate = new Set(options?.boilerplate ?? BOILERPLATE_ELEMENTS)
 			const elements = new Set(options?.elements ?? CONTENT_ELEMENTS)
 			const base = options?.base
-			const visibleDerivations = new Map<HTMLNode, HTMLNode>()
-			const visible = this.#derive(
-				pruneDocument(
-					this.#document,
-					(node) => this.#pruneRegion(node, boilerplate),
-					visibleDerivations,
-				),
-				visibleDerivations,
+			const [visibleDocument, visibleDerivations] = pruneDocument(this.#document, (node) =>
+				this.#pruneRegion(node, boilerplate),
 			)
+			const visible = this.#derive(visibleDocument, visibleDerivations)
 			const clean = visible.sanitize()
-			const regionDerivations = new Map<HTMLNode, HTMLNode>()
-			const rooted = clean.#derive(
-				extractRegion(clean.document, REGION_ELEMENTS, regionDerivations),
-				regionDerivations,
-			)
-			const contentDerivations = new Map<HTMLNode, HTMLNode>()
-			return rooted.#derive(
-				pruneDocument(
-					rooted.document,
-					(node) => this.#keepContent(node, elements, base, contentDerivations),
-					contentDerivations,
-				),
-				contentDerivations,
-			)
+			const [rootedDocument, regionDerivations] = extractRegion(clean.document, REGION_ELEMENTS)
+			const rooted = clean.#derive(rootedDocument, regionDerivations)
+			const nestedDerivations = new Map<HTMLNode, HTMLNode | undefined>()
+			const [contentDocument, contentDerivations] = pruneDocument(rooted.document, (node) => {
+				const [replacements, derivations] = this.#keepContent(node, elements, base)
+				for (const [derived, source] of derivations) nestedDerivations.set(derived, source)
+				return replacements
+			})
+			const derivations = new Map(contentDerivations)
+			for (const [derived, source] of nestedDerivations) {
+				if (!derivations.has(derived)) derivations.set(derived, source)
+				else if (derivations.get(derived) !== source) derivations.set(derived, undefined)
+			}
+			return rooted.#derive(contentDocument, derivations)
 		})
 		return outcome.success ? outcome.value : new HTML({ category: 'document', children: [] })
 	}
 
 	// Creates a fresh handle and resolves each carried node through this operation's
-	// one-source derivation chain. Shared references resolve directly by identity.
-	#derive(document: HTMLDocument, derivations: ReadonlyMap<HTMLNode, HTMLNode>): HTML {
+	// one-source derivation chain. Unchanged references resolve directly by identity.
+	#derive(document: HTMLDocument, derivations: ReadonlyMap<HTMLNode, HTMLNode | undefined>): HTML {
 		const derived = new HTML(document)
+		const visited = new Set<HTMLNode>()
 		for (const node of walkNodes(document)) {
+			visited.clear()
 			let source: HTMLNode | undefined = node
-			const visited = new WeakSet<object>()
 			while (source !== undefined && !visited.has(source)) {
 				visited.add(source)
+				if (derivations.has(source)) {
+					source = derivations.get(source)
+					continue
+				}
 				const span = this.#spans.get(source)
 				if (span !== undefined) {
 					derived.#spans.set(node, span)
 					break
 				}
-				source = derivations.get(source)
+				source = undefined
 			}
 		}
 		return derived
@@ -389,23 +391,19 @@ export class HTML implements HTMLInterface {
 		node: HTMLNode,
 		elements: ReadonlySet<string>,
 		base: string | undefined,
-		derivations: Map<HTMLNode, HTMLNode>,
-	): readonly HTMLNode[] {
+	): HTMLDerivation<readonly HTMLNode[]> {
+		const derivations = new Map<HTMLNode, HTMLNode | undefined>()
 		if (node.category === 'document') {
-			return [
-				{
-					category: 'document',
-					children: collapseText(mergeText(node.children), derivations),
-				},
-			]
+			const [children, collapsed] = collapseText(mergeText(node.children))
+			return [[{ category: 'document', children }], collapsed]
 		}
-		if (node.category === 'text') return [node]
-		if (node.category !== 'element') return []
+		if (node.category === 'text') return [[node], derivations]
+		if (node.category !== 'element') return [[], derivations]
 		const name = node.name.toLowerCase()
-		if (!elements.has(name)) return node.children
+		if (!elements.has(name)) return [node.children, derivations]
 		const merged = mergeText(node.children)
 		const literal = name === 'pre' || name === 'code'
-		const content = literal ? merged : collapseText(merged, derivations)
+		const [content, collapsed] = literal ? [merged, derivations] : collapseText(merged)
 		const childless = VOID_ELEMENTS.includes(name)
 		const kept: ElementNode = {
 			category: 'element',
@@ -413,7 +411,7 @@ export class HTML implements HTMLInterface {
 			attributes: base === undefined ? node.attributes : resolveAttributes(node, base),
 			children: childless ? [] : content,
 		}
-		if (!childless && isEmptyElement(kept)) return []
+		if (!childless && isEmptyElement(kept)) return [[], collapsed]
 		const only = content[0]
 		if (
 			content.length === 1 &&
@@ -422,8 +420,8 @@ export class HTML implements HTMLInterface {
 			only.category === 'element' &&
 			only.name === name
 		) {
-			return [only]
+			return [[only], collapsed]
 		}
-		return [kept]
+		return [[kept], collapsed]
 	}
 }

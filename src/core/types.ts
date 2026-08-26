@@ -165,6 +165,41 @@ export interface HTMLSpan {
 }
 
 /**
+ * Carries the parsed document and its original-input node regions.
+ *
+ * @remarks
+ * The map is operation-owned. Nodes without one source have no entry.
+ */
+export type HTMLParseResult = readonly [
+	document: HTMLDocument,
+	spans: ReadonlyMap<HTMLNode, HTMLSpan>,
+]
+
+/**
+ * Carries a derived value and the source of each rebuilt node.
+ *
+ * @remarks
+ * A mapped `undefined` marks an output identity returned for separate sources. An absent
+ * entry means the output retained its own identity or has no recorded derivation.
+ */
+export type HTMLDerivation<T> = readonly [
+	value: T,
+	derivations: ReadonlyMap<HTMLNode, HTMLNode | undefined>,
+]
+
+/** Describes the text, source region, and close boundary returned by a raw-text scan. */
+export interface HTMLRawText {
+	/** The raw or entity-decoded text node. */
+	readonly node: TextNode
+	/** The half-open text region in the string passed to the scanner. */
+	readonly span: HTMLSpan
+	/** The first offset after the closing tag, or the input length when unclosed. */
+	readonly next: number
+	/** Whether the scan found a complete matching close tag. */
+	readonly closed: boolean
+}
+
+/**
  * A fold handler for one node category - receives the node and its children ALREADY
  * folded to `T`, and produces the node's own `T`. The building block of an
  * {@link HTMLHandlers} table.

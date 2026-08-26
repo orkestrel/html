@@ -1,11 +1,4 @@
-import type {
-	ElementNode,
-	HTMLDocument,
-	HTMLHandlers,
-	HTMLNode,
-	HTMLSpan,
-	HTMLStartTag,
-} from '@src/core'
+import type { ElementNode, HTMLDocument, HTMLHandlers, HTMLNode, HTMLStartTag } from '@src/core'
 import {
 	MAX_DEPTH,
 	NAMED_ENTITIES,
@@ -22,8 +15,10 @@ import {
 	isSafeURL,
 	lowercaseASCII,
 	mergeText,
+	normalizeSource,
 	parseDocument,
 	parseStartTag,
+	projectSpan,
 	pruneDocument,
 	renderHTML,
 	renderText,
@@ -55,6 +50,17 @@ import {
 } from '../../setup.js'
 
 describe('HTML escaping and URL helpers', () => {
+	it('normalizeSource maps normalized boundaries to original UTF-16 offsets', () => {
+		const [source, offsets] = normalizeSource('A\r\n𝕏\r\0B')
+		expect(source).toBe('A\n𝕏\n\uFFFDB')
+		expect(offsets).toEqual([0, 1, 3, 4, 5, 6, 7, 8])
+		expect(projectSpan(offsets, 2, 4)).toEqual({ start: 3, end: 5 })
+	})
+
+	it('projectSpan refuses an uncovered boundary', () => {
+		expect(projectSpan([0, 1], 1, 2)).toBeUndefined()
+	})
+
 	it('lowercaseASCII folds only ASCII uppercase characters', () => {
 		expect(lowercaseASCII('HTML-İ-Ω-ω')).toBe('html-İ-Ω-ω')
 	})
@@ -362,25 +368,27 @@ describe('scanning pieces', () => {
 	it('scanRawText finds a case-insensitive close and optionally decodes entities', () => {
 		expect(scanRawText('a <b>&amp;</b></ScRiPt>x', 0, 'script')).toEqual({
 			node: { category: 'text', value: 'a <b>&amp;</b>' },
+			span: { start: 0, end: 14 },
 			next: 23,
 			closed: true,
 		})
 		expect(scanRawText('&lt;b&gt;</TITLE>', 0, 'title', true)).toEqual({
 			node: { category: 'text', value: '<b>' },
+			span: { start: 0, end: 9 },
 			next: 17,
 			closed: true,
 		})
 		expect(scanRawText('unterminated', 0, 'style')).toEqual({
 			node: { category: 'text', value: 'unterminated' },
+			span: { start: 0, end: 12 },
 			next: 12,
 			closed: false,
 		})
 	})
 
-	it('scanRawText records the exact source body boundary', () => {
-		const spans = new Map<HTMLNode, HTMLSpan>()
-		const recovered = scanRawText('a</script <fake>>tail', 0, 'script', false, spans)
-		expect(spans.get(recovered.node)).toEqual({ start: 0, end: 1 })
+	it('scanRawText returns the exact source body boundary', () => {
+		const recovered = scanRawText('a</script <fake>>tail', 0, 'script')
+		expect(recovered.span).toEqual({ start: 0, end: 1 })
 	})
 })
 
@@ -850,28 +858,36 @@ describe('mergeText', () => {
 describe('collapseText', () => {
 	it('collapses whitespace runs in text children while keeping edge spaces', () => {
 		const element: ElementNode = { category: 'element', name: 'b', attributes: [], children: [] }
-		expect(
-			collapseText([
-				{ category: 'text', value: ' a \n  b ' },
-				element,
-				{ category: 'text', value: '\t' },
-			]),
-		).toEqual([{ category: 'text', value: ' a b ' }, element, { category: 'text', value: ' ' }])
+		const first: HTMLNode = { category: 'text', value: ' a \n  b ' }
+		const last: HTMLNode = { category: 'text', value: '\t' }
+		const [collapsed, derivations] = collapseText([first, element, last])
+		expect(collapsed).toEqual([
+			{ category: 'text', value: ' a b ' },
+			element,
+			{ category: 'text', value: ' ' },
+		])
+		expect(derivations.get(collapsed[0] ?? element)).toBe(first)
+		expect(derivations.get(collapsed[2] ?? element)).toBe(last)
 	})
 })
 
 describe('extractRegion', () => {
 	it('re-roots at the sole occurrence of the first qualifying name', () => {
 		const document = parseDocument('<p>outside</p><main><p>inside</p></main>')
-		expect(renderHTML(extractRegion(document, ['main', 'article']))).toBe('<p>inside</p>')
+		const region = [...walkNodes(document)].find(
+			(node) => node.category === 'element' && node.name === 'main',
+		)
+		const [rooted, derivations] = extractRegion(document, ['main', 'article'])
+		expect(renderHTML(rooted)).toBe('<p>inside</p>')
+		expect(derivations.get(rooted)).toBe(region)
 	})
 
 	it('skips an absent or repeated name and falls through to the next', () => {
 		const document = parseDocument('<article><p>only</p></article>')
-		expect(renderHTML(extractRegion(document, ['main', 'article']))).toBe('<p>only</p>')
+		expect(renderHTML(extractRegion(document, ['main', 'article'])[0])).toBe('<p>only</p>')
 		const repeated = parseDocument('<main><p>a</p></main><MAIN><p>b</p></MAIN>')
-		expect(extractRegion(repeated, ['main'])).toBe(repeated)
-		expect(extractRegion(parseDocument('<p>a</p>'), ['main', 'article'])).toEqual({
+		expect(extractRegion(repeated, ['main'])[0]).toBe(repeated)
+		expect(extractRegion(parseDocument('<p>a</p>'), ['main', 'article'])[0]).toEqual({
 			category: 'document',
 			children: [
 				{
@@ -888,12 +904,13 @@ describe('extractRegion', () => {
 describe('pruneDocument', () => {
 	it('drops, unwraps, and keeps nodes from one bottom-up pass', () => {
 		const document = parseDocument('<div><span>a</span><!--c--><p>b</p></div>')
-		const pruned = pruneDocument(document, (node) => {
+		const [pruned, derivations] = pruneDocument(document, (node) => {
 			if (node.category === 'comment') return []
 			if (node.category === 'element' && node.name === 'span') return node.children
 			return [node]
 		})
 		expect(renderHTML(pruned)).toBe('<div>a<p>b</p></div>')
+		expect(derivations.get(pruned)).toBe(document)
 	})
 
 	it('hands each node its children already pruned, bottom-up, root last', () => {
@@ -912,23 +929,23 @@ describe('pruneDocument', () => {
 
 	it('keeps the reference of a subtree nothing changed', () => {
 		const document = parseDocument('<div><p>a</p></div>')
-		expect(pruneDocument(document, (node) => [node])).toBe(document)
+		expect(pruneDocument(document, (node) => [node])[0]).toBe(document)
 	})
 
 	it('rebuilds a root from replacements that are not a document', () => {
 		const document = parseDocument('<p>a</p>')
-		expect(pruneDocument(document, (node) => (node.category === 'document' ? [] : [node]))).toEqual(
-			{
-				category: 'document',
-				children: [],
-			},
-		)
+		expect(
+			pruneDocument(document, (node) => (node.category === 'document' ? [] : [node]))[0],
+		).toEqual({
+			category: 'document',
+			children: [],
+		})
 	})
 
 	it('stays total and depth-capped over a hostile deep document', () => {
 		const document = buildDeepHTMLDocument(MAX_DEPTH + 500)
 		let count = 0
-		const pruned = pruneDocument(document, (node) => {
+		const [pruned] = pruneDocument(document, (node) => {
 			count += 1
 			return [node]
 		})
@@ -962,7 +979,7 @@ describe('pruneDocument', () => {
 			children: [{ category: 'text', value: 'keep me' }, script],
 		}
 		const recorder = createRecorder<[HTMLNode]>()
-		const pruned = pruneDocument(document, (node) => {
+		const [pruned] = pruneDocument(document, (node) => {
 			recorder.handler(node)
 			if (node.category === 'element' && node.name === 'script') {
 				throw new Error('hostile handler')
@@ -1168,7 +1185,7 @@ describe('AST walkers', () => {
 	it('rewriteDocument preserves every reference for an identity rewrite', () => {
 		const document = parseDocument('<div><p>x</p><p>y</p></div>')
 		const div = document.children[0]
-		const rewritten = rewriteDocument(document, (node) => node)
+		const [rewritten] = rewriteDocument(document, (node) => node)
 		expect(rewritten).toBe(document)
 		expect(rewritten.children[0]).toBe(div)
 	})
@@ -1189,7 +1206,7 @@ describe('AST walkers', () => {
 		if (div?.category !== 'element') throw new Error('expected div')
 		const first = div.children[0]
 		const second = div.children[1]
-		const rewritten = rewriteDocument(document, (node): HTMLNode =>
+		const [rewritten, derivations] = rewriteDocument(document, (node): HTMLNode =>
 			node.category === 'text' && node.value === 'x' ? { category: 'text', value: 'X' } : node,
 		)
 		const rewrittenDiv = rewritten.children[0]
@@ -1198,6 +1215,7 @@ describe('AST walkers', () => {
 		expect(rewrittenDiv).not.toBe(div)
 		expect(rewrittenDiv.children[0]).not.toBe(first)
 		expect(rewrittenDiv.children[1]).toBe(second)
+		expect(derivations.get(rewrittenDiv.children[0] ?? rewrittenDiv)).toBe(first)
 		expect(renderText(rewritten)).toBe('X\ny')
 	})
 

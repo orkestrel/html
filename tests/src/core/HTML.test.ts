@@ -21,8 +21,8 @@ import {
 	isElementNode,
 	isHTMLDocument,
 	isTextNode,
-	parseHTMLSource,
 	parseDocument,
+	normalizeSource,
 	renderHTML,
 	renderText,
 } from '@src/core'
@@ -84,7 +84,7 @@ describe('HTML - span', () => {
 		const slices = [...page.walk()].map((node) => {
 			const span = page.span(node)
 			if (span === undefined) throw new Error('expected parsed provenance')
-			return parseHTMLSource(source.slice(span.start, span.end))[0]
+			return normalizeSource(source.slice(span.start, span.end))[0]
 		})
 		expect(slices).toEqual([
 			'<!DOCTYPE html>\n𝕏<p>A\nB</p><!--note-->',
@@ -184,6 +184,18 @@ describe('HTML - span', () => {
 		const rewritten = page.map((node) => node)
 		expect(rewritten.document).toBe(page.document)
 		expect(rewritten.span(rewritten.document)).toEqual(page.span(page.document))
+	})
+
+	it('leaves a node returned for separate sources unprovenanced', () => {
+		const shared: TextNode = { category: 'text', value: 'z' }
+		const page = new HTML('<i>a</i><b>b</b>')
+		const mapped = page.map((node) => (node.category === 'text' ? shared : node))
+		expect(mapped.span(shared)).toBeUndefined()
+
+		const existing = page.find(isTextNode)
+		if (existing === undefined) throw new Error('expected text')
+		const reused = page.map((node) => (node.category === 'text' ? existing : node))
+		expect(reused.span(existing)).toBeUndefined()
 	})
 })
 

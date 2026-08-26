@@ -3,8 +3,7 @@ import {
 	MAX_DEPTH,
 	isHTMLDocument,
 	parseDocument,
-	parseHTMLSource,
-	parseHTMLSpan,
+	parseProvenance,
 	renderHTML,
 	walkNodes,
 } from '@src/core'
@@ -21,11 +20,15 @@ import {
 } from '../../setup.js'
 
 describe('parseDocument recovery table', () => {
-	it('maps normalized boundaries back to original UTF-16 offsets', () => {
-		const [source, offsets] = parseHTMLSource('A\r\n𝕏\r\0B')
-		expect(source).toBe('A\n𝕏\n\uFFFDB')
-		expect(offsets).toEqual([0, 1, 3, 4, 5, 6, 7, 8])
-		expect(parseHTMLSpan(offsets, 2, 4)).toEqual({ start: 3, end: 5 })
+	it('returns provenance without changing parseDocument bare-document callers', () => {
+		const [document, spans] = parseProvenance('<p>x</p>')
+		expect(parseDocument('<p>x</p>')).toEqual(document)
+		expect(spans.get(document)).toEqual({ start: 0, end: 8 })
+		expect([...walkNodes(document)].map((node) => spans.get(node))).toEqual([
+			{ start: 0, end: 8 },
+			{ start: 0, end: 8 },
+			{ start: 3, end: 4 },
+		])
 	})
 
 	it('void element start tags have empty children and stray closes are discarded', () => {
