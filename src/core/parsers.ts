@@ -7,6 +7,7 @@ import type {
 	TextNode,
 } from './types.js'
 import {
+	IMPLIED_BARRIERS,
 	IMPLIED_CLOSERS,
 	LITERAL_ELEMENTS,
 	MAX_DEPTH,
@@ -141,24 +142,62 @@ export function parseProvenance(html: string): HTMLParseResult {
 				}
 			}
 		} else {
-			while (overflowTarget > 0) {
-				const open = overflow[overflowTarget - 1]
-				const closers =
-					open !== undefined && Object.hasOwn(IMPLIED_CLOSERS, open)
-						? IMPLIED_CLOSERS[open]
-						: undefined
-				if (closers === undefined || !closers.includes(tag.name)) break
-				overflowTarget -= 1
+			const implied: Array<{
+				readonly name: string
+				readonly overflow: boolean
+				readonly position: number
+			}> = []
+			for (const [open, closers] of Object.entries(IMPLIED_CLOSERS)) {
+				if (!closers.includes(tag.name)) continue
+				const overflowMatches = overflowPositions.get(open)
+				const overflowMatch = overflowMatches?.[overflowMatches.length - 1]
+				if (overflowMatch !== undefined) {
+					implied.push({ name: open, overflow: true, position: overflowMatch })
+					continue
+				}
+				const stackMatches = stackPositions.get(open)
+				const stackMatch = stackMatches?.[stackMatches.length - 1]
+				if (stackMatch !== undefined) {
+					implied.push({ name: open, overflow: false, position: stackMatch })
+				}
 			}
-			if (overflowTarget === 0) {
-				while (stackTarget > 1) {
-					const open = stack[stackTarget - 1]?.name
-					const closers =
-						open !== undefined && Object.hasOwn(IMPLIED_CLOSERS, open)
-							? IMPLIED_CLOSERS[open]
-							: undefined
-					if (closers === undefined || !closers.includes(tag.name)) break
-					stackTarget -= 1
+			implied.sort((left, right) => {
+				const leftDepth = left.overflow ? stack.length + left.position : left.position
+				const rightDepth = right.overflow ? stack.length + right.position : right.position
+				return rightDepth - leftDepth
+			})
+			let impliedTarget: (typeof implied)[number] | undefined
+			for (const candidate of implied) {
+				const candidateDepth = candidate.overflow
+					? stack.length + candidate.position
+					: candidate.position
+				const barriers = Object.hasOwn(IMPLIED_BARRIERS, candidate.name)
+					? IMPLIED_BARRIERS[candidate.name]
+					: undefined
+				let blocked = false
+				if (barriers !== undefined) {
+					for (const barrier of barriers) {
+						const barrierOverflow = overflowPositions.get(barrier)
+						const overflowPosition = barrierOverflow?.[barrierOverflow.length - 1]
+						const barrierStack = stackPositions.get(barrier)
+						const stackPosition = barrierStack?.[barrierStack.length - 1]
+						const barrierDepth =
+							overflowPosition === undefined ? stackPosition : stack.length + overflowPosition
+						if (barrierDepth !== undefined && barrierDepth > candidateDepth) {
+							blocked = true
+							break
+						}
+					}
+				}
+				if (blocked) break
+				impliedTarget = candidate
+			}
+			if (impliedTarget !== undefined) {
+				if (impliedTarget.overflow) {
+					overflowTarget = impliedTarget.position
+				} else {
+					overflowTarget = 0
+					stackTarget = impliedTarget.position
 				}
 			}
 		}

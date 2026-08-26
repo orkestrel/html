@@ -4,6 +4,7 @@ import {
 	CONTENT_ELEMENTS,
 	HTML,
 	HTML_WHITESPACE,
+	IMPLIED_BARRIERS,
 	IMPLIED_CLOSERS,
 	LITERAL_ELEMENTS,
 	NAMED_ENTITIES,
@@ -131,6 +132,20 @@ describe('behavioral collection invariants', () => {
 				original: Reflect.get(IMPLIED_CLOSERS.li ?? [], '0'),
 			},
 			{
+				collection: IMPLIED_BARRIERS,
+				remove: 'p',
+				key: 'p',
+				value: new Set(['span']),
+				original: Reflect.get(IMPLIED_BARRIERS, 'p'),
+			},
+			{
+				collection: IMPLIED_BARRIERS.p ?? [],
+				remove: 'button',
+				key: 'button',
+				value: 'span',
+				original: Reflect.get(IMPLIED_BARRIERS.p ?? [], '0'),
+			},
+			{
 				collection: SAFE_ELEMENTS,
 				remove: 'p',
 				key: 'p',
@@ -214,6 +229,9 @@ describe('behavioral collection invariants', () => {
 			for (const closers of Object.values(IMPLIED_CLOSERS)) {
 				expect(Object.isFrozen(closers)).toBe(true)
 			}
+			for (const barriers of Object.values(IMPLIED_BARRIERS)) {
+				expect(Object.isFrozen(barriers)).toBe(true)
+			}
 			expect(isVoidElement('area')).toBe(true)
 			expect(isVoidElement('p')).toBe(false)
 			expect(isRawElement('script')).toBe(true)
@@ -250,6 +268,154 @@ describe('behavioral collection invariants', () => {
 			).toBe('unwrap<p>keep</p>')
 		} finally {
 			for (const mutation of mutations) restoreCollectionMutation(mutation)
+		}
+	})
+
+	it('defines the scope barriers for every implied-close entry', () => {
+		expect(Object.keys(IMPLIED_BARRIERS)).toEqual(Object.keys(IMPLIED_CLOSERS))
+		expect(IMPLIED_BARRIERS.p).toEqual([
+			'applet',
+			'button',
+			'html',
+			'marquee',
+			'object',
+			'select',
+			'template',
+		])
+		expect(IMPLIED_BARRIERS.li).toEqual([
+			'applet',
+			'article',
+			'aside',
+			'basefont',
+			'bgsound',
+			'blockquote',
+			'body',
+			'button',
+			'caption',
+			'center',
+			'colgroup',
+			'dd',
+			'details',
+			'dir',
+			'dl',
+			'dt',
+			'fieldset',
+			'figcaption',
+			'figure',
+			'footer',
+			'form',
+			'frame',
+			'frameset',
+			'h1',
+			'h2',
+			'h3',
+			'h4',
+			'h5',
+			'h6',
+			'head',
+			'header',
+			'hgroup',
+			'html',
+			'iframe',
+			'keygen',
+			'listing',
+			'main',
+			'marquee',
+			'menu',
+			'nav',
+			'noembed',
+			'noframes',
+			'noscript',
+			'object',
+			'ol',
+			'param',
+			'plaintext',
+			'pre',
+			'search',
+			'section',
+			'select',
+			'summary',
+			'table',
+			'tbody',
+			'td',
+			'template',
+			'tfoot',
+			'th',
+			'thead',
+			'tr',
+			'ul',
+			'xmp',
+		])
+		expect(IMPLIED_BARRIERS.dt).toEqual([
+			'applet',
+			'article',
+			'aside',
+			'basefont',
+			'bgsound',
+			'blockquote',
+			'body',
+			'button',
+			'caption',
+			'center',
+			'colgroup',
+			'details',
+			'dir',
+			'dl',
+			'fieldset',
+			'figcaption',
+			'figure',
+			'footer',
+			'form',
+			'frame',
+			'frameset',
+			'h1',
+			'h2',
+			'h3',
+			'h4',
+			'h5',
+			'h6',
+			'head',
+			'header',
+			'hgroup',
+			'html',
+			'iframe',
+			'keygen',
+			'li',
+			'listing',
+			'main',
+			'marquee',
+			'menu',
+			'nav',
+			'noembed',
+			'noframes',
+			'noscript',
+			'object',
+			'ol',
+			'param',
+			'plaintext',
+			'pre',
+			'search',
+			'section',
+			'select',
+			'summary',
+			'table',
+			'tbody',
+			'td',
+			'template',
+			'tfoot',
+			'th',
+			'thead',
+			'tr',
+			'ul',
+			'xmp',
+		])
+		expect(IMPLIED_BARRIERS.dd).toEqual(IMPLIED_BARRIERS.dt)
+		expect(IMPLIED_BARRIERS.option).toEqual(['select'])
+		expect(IMPLIED_BARRIERS.optgroup).toEqual(['select'])
+		expect(IMPLIED_BARRIERS.rt).toEqual(['ruby'])
+		expect(IMPLIED_BARRIERS.rp).toEqual(['ruby'])
+		for (const open of ['td', 'th', 'tr', 'thead', 'tbody', 'tfoot']) {
+			expect(IMPLIED_BARRIERS[open]).toEqual(['html', 'table', 'template'])
 		}
 	})
 })

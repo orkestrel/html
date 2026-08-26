@@ -119,6 +119,17 @@ describe('HTML - span', () => {
 		])
 	})
 
+	it('ends every element implicitly closed through an inline element at the trigger', () => {
+		const page = new HTML('<p><b>x<div>y')
+		const elements = page.filter(isElementNode)
+		expect(elements.map((node) => node.name)).toEqual(['p', 'b', 'div'])
+		expect(elements.map((node) => page.span(node))).toEqual([
+			{ start: 0, end: 7 },
+			{ start: 3, end: 7 },
+			{ start: 7, end: 13 },
+		])
+	})
+
 	it('returns undefined for adopted, foreign, and synthesized nodes', () => {
 		const adoptedDocument: HTMLDocument = {
 			category: 'document',

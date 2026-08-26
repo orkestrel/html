@@ -1,5 +1,7 @@
 import type { ElementNode, HTMLDocument } from '@src/core'
 import {
+	IMPLIED_BARRIERS,
+	IMPLIED_CLOSERS,
 	MAX_DEPTH,
 	isHTMLDocument,
 	parseDocument,
@@ -125,6 +127,54 @@ describe('parseDocument recovery table', () => {
 		if (table?.category !== 'element') throw new Error('expected table')
 		expect(extractHTMLText({ category: 'document', children: [table] })).toBe('xyz')
 		expect(isHTMLDocument(document)).toBe(true)
+	})
+
+	it('closes a keyed ancestor through intervening inline elements', () => {
+		expect(renderHTML(parseDocument('<p><b>x<div>y'))).toBe('<p><b>x</b></p><div>y</div>')
+	})
+
+	it('keeps a paragraph open across a button scope barrier', () => {
+		expect(renderHTML(parseDocument('<p><button>x<div>y'))).toBe(
+			'<p><button>x<div>y</div></button></p>',
+		)
+	})
+
+	it('keeps an outer list item open while inner list item siblings imply closes', () => {
+		expect(renderHTML(parseDocument('<ul><li>x<ul><li>y<li>z'))).toBe(
+			'<ul><li>x<ul><li>y</li><li>z</li></ul></li></ul>',
+		)
+	})
+
+	it('closes a description entry through an intervening inline element', () => {
+		expect(renderHTML(parseDocument('<dl><dt><b>x<dd>y'))).toBe(
+			'<dl><dt><b>x</b></dt><dd>y</dd></dl>',
+		)
+	})
+
+	it('keeps a description entry open across a nested description list barrier', () => {
+		expect(renderHTML(parseDocument('<dl><dt>x<dl><dd>y'))).toBe(
+			'<dl><dt>x<dl><dd>y</dd></dl></dt></dl>',
+		)
+	})
+
+	it('keeps entry-keyed ancestors open across every configured scope barrier', () => {
+		for (const [open, barriers] of Object.entries(IMPLIED_BARRIERS)) {
+			const incoming = IMPLIED_CLOSERS[open]?.[0]
+			if (incoming === undefined) throw new Error(`expected an implied closer for ${open}`)
+			for (const barrier of barriers) {
+				expect(renderHTML(parseDocument(`<${open}><${barrier}>x<${incoming}>y`))).toBe(
+					`<${open}><${barrier}>x<${incoming}>y</${incoming}></${barrier}></${open}>`,
+				)
+			}
+		}
+	})
+
+	it('reaches a represented implied closer through the depth overflow stack', () => {
+		const ancestors = '<x>'.repeat(MAX_DEPTH - 1)
+		const closes = '</x>'.repeat(MAX_DEPTH - 1)
+		expect(renderHTML(parseDocument(`${ancestors}<p><b>x<div>y`))).toBe(
+			`${ancestors}<p>x</p><div>y</div>${closes}`,
+		)
 	})
 
 	it('a mis-nested close closes the nearest match and implicitly closes spanned elements', () => {
