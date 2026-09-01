@@ -7,20 +7,26 @@ import type {
 	HTMLDocument,
 	HTMLHandlers,
 	HTMLNode,
+	HTMLOpenPosition,
 	HTMLPruneHandler,
 	HTMLRawText,
 	HTMLRewriteHandler,
+	HTMLScan,
+	HTMLSource,
 	HTMLSpan,
 	HTMLStartTag,
 	HTMLTag,
 	TextNode,
 } from './types.js'
+import { attempt } from '@orkestrel/contract'
 import {
 	BLOCK_ELEMENTS,
 	HTML_WHITESPACE,
+	LITERAL_ELEMENTS,
 	MAX_DEPTH,
 	NAMED_ENTITIES,
 	RAW_ELEMENTS,
+	SAFE_URL_SCHEMES,
 	TABLE_ALIGNMENTS,
 	TABLE_CELL_ELEMENTS,
 	URL_ATTRIBUTES,
@@ -34,9 +40,7 @@ import { isHTMLCodePoint } from './validators.js'
  * @param html - The original HTML input
  * @returns The normalized source and its boundary-to-original offset map
  */
-export function normalizeSource(
-	html: string,
-): readonly [source: string, offsets: readonly number[]] {
+export function normalizeSource(html: string): HTMLSource {
 	let source = ''
 	const offsets: number[] = [0]
 	let index = 0
@@ -104,7 +108,7 @@ export function findOpenPosition(
 	represented: ReadonlyMap<string, readonly number[]>,
 	overflow: ReadonlyMap<string, readonly number[]>,
 	name: string,
-): { readonly overflow: boolean; readonly position: number } | undefined {
+): HTMLOpenPosition | undefined {
 	const overflowPositions = overflow.get(name)
 	const overflowPosition = overflowPositions?.[overflowPositions.length - 1]
 	if (overflowPosition !== undefined) return { overflow: true, position: overflowPosition }
@@ -144,6 +148,46 @@ export function projectDepth(overflow: boolean, position: number, height: number
  */
 export function lowercaseASCII(value: string): string {
 	return value.replace(/[A-Z]/g, (character) => character.toLowerCase())
+}
+
+/**
+ * Determine whether an element name is void.
+ *
+ * @param name - The element name
+ * @returns `true` when the canonical element set declares the name void
+ */
+export function isVoidElement(name: string): boolean {
+	return VOID_ELEMENTS.includes(name.toLowerCase())
+}
+
+/**
+ * Determine whether an element name contains verbatim raw text.
+ *
+ * @param name - The element name
+ * @returns `true` for `script` and `style`
+ */
+export function isRawElement(name: string): boolean {
+	return RAW_ELEMENTS.includes(name.toLowerCase())
+}
+
+/**
+ * Determine whether an element name contains decoded literal text.
+ *
+ * @param name - The element name
+ * @returns `true` for `title` and `textarea`
+ */
+export function isLiteralElement(name: string): boolean {
+	return LITERAL_ELEMENTS.includes(name.toLowerCase())
+}
+
+/**
+ * Determine whether an element name is a block boundary.
+ *
+ * @param name - The element name
+ * @returns `true` when the canonical block set contains the name
+ */
+export function isBlockElement(name: string): boolean {
+	return BLOCK_ELEMENTS.includes(name.toLowerCase())
 }
 
 /**
@@ -471,10 +515,7 @@ export function scanTag(html: string, offset: number): HTMLTag | undefined {
  * @param offset - The offset of the opening `<`
  * @returns The comment node and next offset, or `undefined` when no comment starts here
  */
-export function scanComment(
-	html: string,
-	offset: number,
-): { readonly node: CommentNode; readonly next: number } | undefined {
+export function scanComment(html: string, offset: number): HTMLScan<CommentNode> | undefined {
 	if (html.startsWith('<!--', offset)) {
 		const start = offset + 4
 		if (html[start] === '>') {
@@ -519,10 +560,7 @@ export function scanComment(
  * @param offset - The offset of the opening `<`
  * @returns The doctype node and next offset, or `undefined` for a non-doctype or incomplete input
  */
-export function scanDoctype(
-	html: string,
-	offset: number,
-): { readonly node: DoctypeNode; readonly next: number } | undefined {
+export function scanDoctype(html: string, offset: number): HTMLScan<DoctypeNode> | undefined {
 	if (lowercaseASCII(html.slice(offset, offset + 9)) !== '<!doctype') return undefined
 	const boundary = html[offset + 9]
 	if (boundary !== undefined && boundary !== '>' && !HTML_WHITESPACE.includes(boundary)) {
@@ -684,7 +722,7 @@ export function sanitizeURL(
 	value: string,
 	schemes: ReadonlySet<string> | readonly string[],
 ): string {
-	try {
+	const outcome = attempt(() => {
 		let decoded = value
 		let stable = false
 		for (let count = 0; count < 8; count += 1) {
@@ -726,9 +764,22 @@ export function sanitizeURL(
 			return ''
 		}
 		return cleaned
-	} catch {
-		return ''
-	}
+	})
+	return outcome.success ? outcome.value : ''
+}
+
+/**
+ * Determine whether a URL is relative or uses an allowed non-dangerous scheme.
+ *
+ * @param value - The already entity-decoded URL value
+ * @param schemes - The allowed absolute schemes
+ * @returns `true` when the URL passes the sanitizer's protocol floor
+ */
+export function isSafeURL(
+	value: string,
+	schemes: ReadonlySet<string> | readonly string[] = SAFE_URL_SCHEMES,
+): boolean {
+	return sanitizeURL(value, schemes) !== ''
 }
 
 /**
@@ -739,11 +790,8 @@ export function sanitizeURL(
  * @returns The resolved URL, or the original value when resolution fails
  */
 export function resolveURL(value: string, base: string): string {
-	try {
-		return new URL(value, base).href
-	} catch {
-		return value
-	}
+	const outcome = attempt(() => new URL(value, base).href)
+	return outcome.success ? outcome.value : value
 }
 
 /**
@@ -758,15 +806,14 @@ export function resolveURL(value: string, base: string): string {
  * @returns Its value, `''` for a present valueless attribute, or `undefined` when absent
  */
 export function attributeOf(node: ElementNode, name: string): string | undefined {
-	try {
+	const outcome = attempt((): string | undefined => {
 		const expected = name.toLowerCase()
 		for (const attribute of node.attributes) {
 			if (attribute.name.toLowerCase() === expected) return attribute.value ?? ''
 		}
 		return undefined
-	} catch {
-		return undefined
-	}
+	})
+	return outcome.success ? outcome.value : undefined
 }
 
 /**
@@ -792,7 +839,7 @@ export function sanitizeAttributes(
 	attributes: ReadonlySet<string> | readonly string[],
 	schemes: ReadonlySet<string> | readonly string[],
 ): readonly HTMLAttribute[] {
-	try {
+	const outcome = attempt((): readonly HTMLAttribute[] => {
 		const kept: HTMLAttribute[] = []
 		const names = new Set<string>()
 		const has = Reflect.get(attributes, 'has')
@@ -832,9 +879,8 @@ export function sanitizeAttributes(
 			if (url.length > 0) kept.push({ name, value: url })
 		}
 		return kept
-	} catch {
-		return []
-	}
+	})
+	return outcome.success ? outcome.value : []
 }
 
 /**
@@ -850,7 +896,7 @@ export function sanitizeAttributes(
  * @returns The element's attributes with every URL value resolved, in source order
  */
 export function resolveAttributes(node: ElementNode, base: string): readonly HTMLAttribute[] {
-	try {
+	const outcome = attempt((): readonly HTMLAttribute[] => {
 		const resolved: HTMLAttribute[] = []
 		for (const attribute of node.attributes) {
 			const name = attribute.name.toLowerCase()
@@ -861,9 +907,8 @@ export function resolveAttributes(node: ElementNode, base: string): readonly HTM
 			resolved.push(attribute.value === undefined ? { name } : { name, value: attribute.value })
 		}
 		return resolved
-	} catch {
-		return node.attributes
-	}
+	})
+	return outcome.success ? outcome.value : node.attributes
 }
 
 /**
@@ -887,7 +932,7 @@ export function collapseSpace(value: string): string {
  * @returns Canonical HTML, or `''` if a hostile value prevents serialization
  */
 export function renderHTML(node: HTMLNode): string {
-	try {
+	const outcome = attempt(() => {
 		const stack: Array<{
 			readonly node: HTMLNode
 			readonly depth: number
@@ -1020,9 +1065,8 @@ export function renderHTML(node: HTMLNode): string {
 			values.push(value)
 		}
 		return ''
-	} catch {
-		return ''
-	}
+	})
+	return outcome.success ? outcome.value : ''
 }
 
 /**
@@ -1038,7 +1082,7 @@ export function renderHTML(node: HTMLNode): string {
  * @returns Structural plain text
  */
 export function renderText(node: HTMLNode): string {
-	try {
+	const outcome = attempt(() => {
 		const stack: Array<{
 			readonly node: HTMLNode
 			readonly depth: number
@@ -1171,9 +1215,8 @@ export function renderText(node: HTMLNode): string {
 			value += text
 		}
 		return value
-	} catch {
-		return ''
-	}
+	})
+	return outcome.success ? outcome.value : ''
 }
 
 /**
@@ -1183,6 +1226,9 @@ export function renderText(node: HTMLNode): string {
  * @returns A depth-bounded generator of visited nodes
  */
 export function* walkNodes(node: HTMLNode): Generator<HTMLNode> {
+	// The one exception boundary here that is not `attempt`: a generator yields from inside
+	// its own body, and `attempt` returns a value rather than resuming a suspended frame, so
+	// wrapping this body would collect the whole traversal eagerly instead of streaming it.
 	try {
 		const stack: Array<{ readonly node: HTMLNode; readonly depth: number }> = [{ node, depth: -1 }]
 		const visited = new WeakSet<object>()
@@ -1310,7 +1356,7 @@ export function rewriteDocument(
 ): HTMLDerivation<HTMLDocument> {
 	const derivations = new Map<HTMLNode, HTMLNode | undefined>()
 	const outputs = new Map<HTMLNode, HTMLNode>()
-	try {
+	const outcome = attempt((): HTMLDerivation<HTMLDocument> => {
 		const stack: Array<{
 			readonly node: HTMLNode
 			readonly depth: number
@@ -1395,9 +1441,8 @@ export function rewriteDocument(
 			values.push(rewritten)
 		}
 		return [document, derivations]
-	} catch {
-		return [document, new Map()]
-	}
+	})
+	return outcome.success ? outcome.value : [document, new Map()]
 }
 
 /**
@@ -1413,7 +1458,7 @@ export function rewriteDocument(
  * @returns The list with adjacent text joined and empty text removed
  */
 export function mergeText(children: readonly HTMLNode[]): readonly HTMLNode[] {
-	try {
+	const outcome = attempt((): readonly HTMLNode[] => {
 		const merged: HTMLNode[] = []
 		for (const child of children) {
 			if (child === undefined) continue
@@ -1430,9 +1475,8 @@ export function mergeText(children: readonly HTMLNode[]): readonly HTMLNode[] {
 			merged.push(child)
 		}
 		return merged
-	} catch {
-		return children
-	}
+	})
+	return outcome.success ? outcome.value : children
 }
 
 /**
@@ -1449,7 +1493,7 @@ export function mergeText(children: readonly HTMLNode[]): readonly HTMLNode[] {
  */
 export function collapseText(children: readonly HTMLNode[]): HTMLDerivation<readonly HTMLNode[]> {
 	const derivations = new Map<HTMLNode, HTMLNode | undefined>()
-	try {
+	const outcome = attempt((): HTMLDerivation<readonly HTMLNode[]> => {
 		const collapsed: HTMLNode[] = []
 		for (const child of children) {
 			if (child === undefined) continue
@@ -1462,9 +1506,8 @@ export function collapseText(children: readonly HTMLNode[]): HTMLDerivation<read
 			derivations.set(text, child)
 		}
 		return [collapsed, derivations]
-	} catch {
-		return [children, new Map()]
-	}
+	})
+	return outcome.success ? outcome.value : [children, new Map()]
 }
 
 /**
@@ -1485,7 +1528,7 @@ export function extractRegion(
 	names: readonly string[],
 ): HTMLDerivation<HTMLDocument> {
 	const derivations = new Map<HTMLNode, HTMLNode | undefined>()
-	try {
+	const outcome = attempt((): HTMLDerivation<HTMLDocument> => {
 		for (const name of names) {
 			const expected = name.toLowerCase()
 			let region: ElementNode | undefined
@@ -1503,9 +1546,8 @@ export function extractRegion(
 			}
 		}
 		return [document, derivations]
-	} catch {
-		return [document, new Map()]
-	}
+	})
+	return outcome.success ? outcome.value : [document, new Map()]
 }
 
 /**
@@ -1533,7 +1575,7 @@ export function pruneDocument(
 	prune: HTMLPruneHandler,
 ): HTMLDerivation<HTMLDocument> {
 	const derivations = new Map<HTMLNode, HTMLNode | undefined>()
-	try {
+	const outcome = attempt((): HTMLDerivation<HTMLDocument> => {
 		const stack: Array<{
 			readonly node: HTMLNode
 			readonly depth: number
@@ -1622,7 +1664,6 @@ export function pruneDocument(
 			results.push(replacements)
 		}
 		return [{ category: 'document', children: [] }, derivations]
-	} catch {
-		return [{ category: 'document', children: [] }, new Map()]
-	}
+	})
+	return outcome.success ? outcome.value : [{ category: 'document', children: [] }, new Map()]
 }

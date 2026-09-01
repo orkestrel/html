@@ -165,6 +165,46 @@ export interface HTMLSpan {
 }
 
 /**
+ * Carries a normalized HTML source beside the boundary map back to its original input.
+ *
+ * @remarks
+ * Entry `index` of `offsets` is the original-input offset that normalized offset `index`
+ * came from, so a normalized half-open region projects back through `projectSpan`. The
+ * normalization the map accounts for is the parser's own: CRLF and a lone carriage return
+ * become one newline, and `U+0000` becomes `U+FFFD`.
+ */
+export type HTMLSource = readonly [source: string, offsets: readonly number[]]
+
+/**
+ * Describes one open element occurrence located across the parser's represented and
+ * depth-overflow stacks.
+ *
+ * @remarks
+ * `position` indexes the stack `overflow` names, so the two fields are read together;
+ * `projectDepth` is what puts them on the single scale both stacks compare on.
+ */
+export interface HTMLOpenPosition {
+	/** Whether the depth-overflow stack recorded the occurrence. */
+	readonly overflow: boolean
+	/** The occurrence's position within the stack that recorded it. */
+	readonly position: number
+}
+
+/**
+ * Describes the node and close boundary returned by a scanner that produces one leaf node.
+ *
+ * @remarks
+ * `next` is the first offset after the construct the scanner consumed, so a caller resumes
+ * there without recomputing the boundary.
+ */
+export interface HTMLScan<TNode extends HTMLNode> {
+	/** The scanned node. */
+	readonly node: TNode
+	/** The first offset after the scanned construct. */
+	readonly next: number
+}
+
+/**
  * Carries the parsed document and its original-input node regions.
  *
  * @remarks
@@ -390,12 +430,20 @@ export interface HTMLInterface {
 	 * Removes every unsafe element, attribute, and URL and returns a new
 	 * {@link HTMLInterface}. The floor documented on {@link SanitizeOptions} holds
 	 * whatever the options say.
+	 *
+	 * @param options - The sanitize allowlists and comment policy
+	 * @returns A new handle over the sanitized document; an empty document when any step
+	 * throws, because the pass fails closed
 	 */
 	sanitize(options?: SanitizeOptions): HTMLInterface
 	/**
 	 * Extracts the page's content - sanitizing first, then pruning boilerplate,
 	 * chrome, and wrappers per {@link DistillOptions} - and returns a new
 	 * {@link HTMLInterface}.
+	 *
+	 * @param options - The base URL and the content and boilerplate element sets
+	 * @returns A new handle over the distilled document; an empty document when any step
+	 * throws, because the pass fails closed
 	 */
 	distill(options?: DistillOptions): HTMLInterface
 }

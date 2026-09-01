@@ -13,7 +13,11 @@ import {
 	extractRegion,
 	findOpenPosition,
 	foldNode,
+	isBlockElement,
+	isLiteralElement,
+	isRawElement,
 	isSafeURL,
+	isVoidElement,
 	lowercaseASCII,
 	mergeText,
 	normalizeSource,
@@ -312,6 +316,38 @@ describe('HTML escaping and URL helpers', () => {
 
 	it('collapses inter-word whitespace and trims edges', () => {
 		expect(collapseSpace(' \talpha\r\n beta  gamma\n')).toBe('alpha beta gamma')
+	})
+})
+
+describe('element and URL predicates', () => {
+	it('classifies void, raw, literal, and block names case-insensitively', () => {
+		expect(isVoidElement('BR')).toBe(true)
+		expect(isVoidElement('div')).toBe(false)
+		expect(isRawElement('SCRIPT')).toBe(true)
+		expect(isRawElement('title')).toBe(false)
+		expect(isLiteralElement('TEXTAREA')).toBe(true)
+		expect(isLiteralElement('style')).toBe(false)
+		expect(isBlockElement('ARTICLE')).toBe(true)
+		expect(isBlockElement('span')).toBe(false)
+	})
+
+	it('recognizes relative and allowed URLs and rejects the hard floor', () => {
+		expect(isSafeURL('/guide?q=1')).toBe(true)
+		expect(isSafeURL('https://example.com')).toBe(true)
+		expect(isSafeURL('MAILTO:a@example.com')).toBe(true)
+		expect(isSafeURL('javascript:alert(1)')).toBe(false)
+		expect(isSafeURL('java\nscript:alert(1)')).toBe(false)
+		expect(isSafeURL('data:text/html,x')).toBe(false)
+		expect(isSafeURL('//example.com')).toBe(false)
+		expect(isSafeURL('\\\\example.com')).toBe(false)
+		expect(isSafeURL('')).toBe(false)
+	})
+
+	it('applies a caller scheme set without lowering the dangerous-scheme floor', () => {
+		const schemes = new Set(['custom', 'javascript'])
+		expect(isSafeURL('custom:value', schemes)).toBe(true)
+		expect(isSafeURL('https://example.com', schemes)).toBe(false)
+		expect(isSafeURL('javascript:value', schemes)).toBe(false)
 	})
 })
 

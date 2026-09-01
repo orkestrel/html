@@ -18,16 +18,8 @@ import {
 	literalOf,
 	recordOf,
 } from '@orkestrel/contract'
-import {
-	BLOCK_ELEMENTS,
-	HTML_WHITESPACE,
-	LITERAL_ELEMENTS,
-	MAX_DEPTH,
-	RAW_ELEMENTS,
-	SAFE_URL_SCHEMES,
-	VOID_ELEMENTS,
-} from './constants.js'
-import { sanitizeURL } from './helpers.js'
+import { HTML_WHITESPACE, MAX_DEPTH } from './constants.js'
+import { isVoidElement } from './helpers.js'
 
 /**
  * Determine whether a code point may appear in an unambiguous HTML source token.
@@ -184,60 +176,6 @@ export function isHTMLDocument(value: unknown): value is HTMLDocument {
  */
 export function isElementNode(value: unknown): value is ElementNode {
 	return isHTMLNode(value) && value.category === 'element'
-}
-
-/**
- * Determine whether an element name is void.
- *
- * @param name - The element name
- * @returns `true` when the canonical element set declares the name void
- */
-export function isVoidElement(name: string): boolean {
-	return VOID_ELEMENTS.includes(name.toLowerCase())
-}
-
-/**
- * Determine whether an element name contains verbatim raw text.
- *
- * @param name - The element name
- * @returns `true` for `script` and `style`
- */
-export function isRawElement(name: string): boolean {
-	return RAW_ELEMENTS.includes(name.toLowerCase())
-}
-
-/**
- * Determine whether an element name contains decoded literal text.
- *
- * @param name - The element name
- * @returns `true` for `title` and `textarea`
- */
-export function isLiteralElement(name: string): boolean {
-	return LITERAL_ELEMENTS.includes(name.toLowerCase())
-}
-
-/**
- * Determine whether an element name is a block boundary.
- *
- * @param name - The element name
- * @returns `true` when the canonical block set contains the name
- */
-export function isBlockElement(name: string): boolean {
-	return BLOCK_ELEMENTS.includes(name.toLowerCase())
-}
-
-/**
- * Determine whether a URL is relative or uses an allowed non-dangerous scheme.
- *
- * @param value - The already entity-decoded URL value
- * @param schemes - The allowed absolute schemes
- * @returns `true` when the URL passes the sanitizer's protocol floor
- */
-export function isSafeURL(
-	value: string,
-	schemes: ReadonlySet<string> | readonly string[] = SAFE_URL_SCHEMES,
-): boolean {
-	return sanitizeURL(value, schemes) !== ''
 }
 
 /**

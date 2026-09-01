@@ -223,7 +223,8 @@ export class HTML implements HTMLInterface {
 	 * result is a fixpoint both directly and through a reparse of its own serialization.
 	 *
 	 * @param options - The sanitize allowlists and comment policy
-	 * @returns A new handle over the sanitized document
+	 * @returns A new handle over the sanitized document; an empty document when any step
+	 * throws, because the pass fails closed
 	 *
 	 * @example
 	 * ```ts
@@ -266,7 +267,8 @@ export class HTML implements HTMLInterface {
 	 * anything the floor would have refused.
 	 *
 	 * @param options - The base URL and the content and boilerplate element sets
-	 * @returns A new handle over the distilled document
+	 * @returns A new handle over the distilled document; an empty document when any step
+	 * throws, because the pass fails closed
 	 *
 	 * @example
 	 * ```ts
