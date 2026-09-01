@@ -191,6 +191,16 @@ export function isBlockElement(name: string): boolean {
 }
 
 /**
+ * Checks whether an element has no child nodes.
+ *
+ * @param element - The element to inspect
+ * @returns True if `children` is empty; false otherwise
+ */
+export function isEmptyElement(element: ElementNode): boolean {
+	return element.children.length === 0
+}
+
+/**
  * Decode numeric and semicolon-terminated WHATWG named character references in a string.
  *
  * @param value - The source text or attribute value

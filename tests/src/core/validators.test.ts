@@ -1,10 +1,8 @@
-import type { ElementNode, HTMLNode } from '@src/core'
 import {
 	MAX_DEPTH,
 	isCommentNode,
 	isDoctypeNode,
 	isElementNode,
-	isEmptyElement,
 	isHTMLAttribute,
 	isHTMLCodePoint,
 	isHTMLDocument,
@@ -150,19 +148,5 @@ describe('recursive HTML guards', () => {
 		Object.setPrototypeOf(node, buildHostileHTMLPrototype())
 		expect(() => isElementNode(node)).not.toThrow()
 		expect(isElementNode(node)).toBe(false)
-	})
-})
-
-describe('element predicates', () => {
-	it('recognizes an element with no children', () => {
-		const empty: ElementNode = {
-			category: 'element',
-			name: 'div',
-			attributes: [],
-			children: [],
-		}
-		const child: HTMLNode = { category: 'text', value: '' }
-		expect(isEmptyElement(empty)).toBe(true)
-		expect(isEmptyElement({ ...empty, children: [child] })).toBe(false)
 	})
 })

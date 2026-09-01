@@ -177,13 +177,3 @@ export function isHTMLDocument(value: unknown): value is HTMLDocument {
 export function isElementNode(value: unknown): value is ElementNode {
 	return isHTMLNode(value) && value.category === 'element'
 }
-
-/**
- * Determine whether an element has no child nodes.
- *
- * @param element - The element to inspect
- * @returns `true` when `children` is empty
- */
-export function isEmptyElement(element: ElementNode): boolean {
-	return element.children.length === 0
-}

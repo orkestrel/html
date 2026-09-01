@@ -14,6 +14,7 @@ import {
 	findOpenPosition,
 	foldNode,
 	isBlockElement,
+	isEmptyElement,
 	isLiteralElement,
 	isRawElement,
 	isSafeURL,
@@ -329,6 +330,18 @@ describe('element and URL predicates', () => {
 		expect(isLiteralElement('style')).toBe(false)
 		expect(isBlockElement('ARTICLE')).toBe(true)
 		expect(isBlockElement('span')).toBe(false)
+	})
+
+	it('recognizes an element with no children', () => {
+		const empty: ElementNode = {
+			category: 'element',
+			name: 'div',
+			attributes: [],
+			children: [],
+		}
+		const child: HTMLNode = { category: 'text', value: '' }
+		expect(isEmptyElement(empty)).toBe(true)
+		expect(isEmptyElement({ ...empty, children: [child] })).toBe(false)
 	})
 
 	it('recognizes relative and allowed URLs and rejects the hard floor', () => {

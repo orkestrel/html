@@ -27,6 +27,7 @@ import {
 	extractRegion,
 	foldNode,
 	mergeText,
+	isEmptyElement,
 	pruneDocument,
 	resolveAttributes,
 	renderHTML,
@@ -35,7 +36,6 @@ import {
 	walkNodes,
 } from './helpers.js'
 import { parseDocument, parseProvenance } from './parsers.js'
-import { isEmptyElement } from './validators.js'
 
 /**
  * A parsed HTML document - the typed {@link HTMLDocument} AST plus the query
