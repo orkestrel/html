@@ -38,7 +38,7 @@ import {
 import { parseDocument, parseProvenance } from './parsers.js'
 
 /**
- * A parsed HTML document - the typed {@link HTMLDocument} AST plus the query
+ * Represents a parsed HTML document - the typed {@link HTMLDocument} AST plus the query
  * (`walk` / `find` / `filter` / `reduce`), rewrite (`map`), fold, streaming, and
  * document-shaping (`sanitize` / `distill`) operations {@link HTMLInterface} declares.
  *
@@ -81,7 +81,7 @@ export class HTML implements HTMLInterface {
 		}
 	}
 
-	/** The stored {@link HTMLDocument} AST root. */
+	/** Exposes the stored {@link HTMLDocument} AST root. */
 	get document(): HTMLDocument {
 		return this.#document
 	}
@@ -98,7 +98,7 @@ export class HTML implements HTMLInterface {
 	}
 
 	/**
-	 * THE deep traversal - a lazy, depth-first, pre-order, root-inclusive generator over
+	 * Provides THE deep traversal - a lazy, depth-first, pre-order, root-inclusive generator over
 	 * every {@link HTMLNode} in the document. `find`, `filter`, and `reduce` all iterate
 	 * this one traversal, so a single ordering law covers the whole query surface.
 	 *
@@ -175,7 +175,7 @@ export class HTML implements HTMLInterface {
 	}
 
 	/**
-	 * A web-standard {@link ReadableStream} over the root's direct children (shallow, source
+	 * Returns a web-standard {@link ReadableStream} over the root's direct children (shallow, source
 	 * order) - a fresh, pull-based source per call: exactly one node is enqueued per `pull`,
 	 * so a slow consumer's backpressure is respected and no work happens ahead of demand.
 	 * Cancellable, independently replayable, and pipeable through any

@@ -13,7 +13,7 @@
 // is a downstream projection from the AST to a string.
 
 /**
- * One attribute of an {@link ElementNode} - its `name` and, when the source wrote one,
+ * Represents one attribute of an {@link ElementNode} - its `name` and, when the source wrote one,
  * its `value`.
  *
  * @remarks
@@ -25,14 +25,14 @@
  * attribute recovers to an absent value rather than to invented text.
  */
 export interface HTMLAttribute {
-	/** The attribute's ASCII-lowercased name. */
+	/** Holds the attribute's ASCII-lowercased name. */
 	readonly name: string
-	/** The attribute's value; absent for a valueless attribute (`<input disabled>`). */
+	/** Holds the attribute's value; absent for a valueless attribute (`<input disabled>`). */
 	readonly value?: string
 }
 
 /**
- * One unambiguous start tag parsed directly from source without recovery.
+ * Represents one unambiguous start tag parsed directly from source without recovery.
  *
  * @remarks
  * `name` and attribute names are ASCII-lowercased, while `next` remains an exact
@@ -43,30 +43,30 @@ export interface HTMLAttribute {
  * no value through `parseStartTag`.
  */
 export interface HTMLStartTag {
-	/** The tag's ASCII-lowercased name. */
+	/** Holds the tag's ASCII-lowercased name. */
 	readonly name: string
-	/** The tag's ordered, ASCII-lowercased attributes. */
+	/** Holds the tag's ordered, ASCII-lowercased attributes. */
 	readonly attributes: readonly HTMLAttribute[]
-	/** Whether the tokenizer recognized a trailing solidus outside an attribute value. */
+	/** Indicates whether the tokenizer recognized a trailing solidus outside an attribute value. */
 	readonly slashed: boolean
-	/** The exclusive UTF-16 source offset immediately after the closing `>`. */
+	/** Holds the exclusive UTF-16 source offset immediately after the closing `>`. */
 	readonly next: number
 }
 
-/** One start or close tag returned by the total, recovering `scanTag` scanner. */
+/** Represents one start or close tag returned by the total, recovering `scanTag` scanner. */
 export interface HTMLTag {
-	/** The tag's ASCII-lowercased name. */
+	/** Holds the tag's ASCII-lowercased name. */
 	readonly name: string
-	/** The start tag's attributes; always empty for a close tag. */
+	/** Holds the start tag's attributes; always empty for a close tag. */
 	readonly attributes: readonly HTMLAttribute[]
-	/** Whether the source token is a close tag. */
+	/** Indicates whether the source token is a close tag. */
 	readonly closing: boolean
-	/** The exclusive UTF-16 source offset immediately after the recovered tag boundary. */
+	/** Holds the exclusive UTF-16 source offset immediately after the recovered tag boundary. */
 	readonly next: number
 }
 
 /**
- * An element - `<p>`, `<table>`, `<my-widget>`, or any other tag, known or custom.
+ * Represents an element - `<p>`, `<table>`, `<my-widget>`, or any other tag, known or custom.
  *
  * @remarks
  * `name` is the ASCII-lowercased tag name and `attributes` are its attributes in source
@@ -78,27 +78,30 @@ export interface HTMLTag {
  */
 export interface ElementNode {
 	readonly category: 'element'
-	/** The element's ASCII-lowercased tag name. */
+	/** Holds the element's ASCII-lowercased tag name. */
 	readonly name: string
-	/** The element's attributes, in source order; a duplicate name keeps its first occurrence. */
+	/**
+	 * Holds the element's attributes, in source order; a duplicate name keeps its first
+	 * occurrence.
+	 */
 	readonly attributes: readonly HTMLAttribute[]
-	/** The element's content; empty for a void element. */
+	/** Holds the element's content; empty for a void element. */
 	readonly children: readonly HTMLNode[]
 }
 
 /**
- * A run of character data - the leaf node. `value` is the decoded text: numeric and
+ * Represents a run of character data - the leaf node. `value` is the decoded text: numeric and
  * semicolon-terminated WHATWG named character references are already resolved (an unknown
  * named reference stays literal), and the renderer re-encodes `&`, `<`, and `>` on the way out.
  */
 export interface TextNode {
 	readonly category: 'text'
-	/** The decoded text content (character references resolved, NOT yet re-encoded). */
+	/** Holds the decoded text content (character references resolved, NOT yet re-encoded). */
 	readonly value: string
 }
 
 /**
- * A comment - `<!-- … -->`. `value` is the comment's verbatim inner text, never decoded
+ * Represents a comment - `<!-- … -->`. `value` is the comment's verbatim inner text, never decoded
  * and never parsed as markup. The parser constructs only representable values: they never
  * begin with an abrupt `>` / `->` close and never contain `-->` / `--!>`, so rendering and
  * reparsing a parser-produced comment preserves it exactly. A hand-built value can violate
@@ -109,12 +112,12 @@ export interface TextNode {
  */
 export interface CommentNode {
 	readonly category: 'comment'
-	/** The comment's verbatim inner text. */
+	/** Holds the comment's verbatim inner text. */
 	readonly value: string
 }
 
 /**
- * A document type declaration - `<!DOCTYPE html>` and its legacy public/system forms.
+ * Represents a document type declaration - `<!DOCTYPE html>` and its legacy public/system forms.
  *
  * @remarks
  * `name` is the declared root name (`html`). `public` and `system` are the external
@@ -125,42 +128,42 @@ export interface CommentNode {
  */
 export interface DoctypeNode {
 	readonly category: 'doctype'
-	/** The declared root element name, ASCII-lowercased (`html`). */
+	/** Holds the declared root element name, ASCII-lowercased (`html`). */
 	readonly name: string
-	/** The public identifier of a legacy declaration, when one was written. */
+	/** Holds the public identifier of a legacy declaration, when one was written. */
 	readonly public?: string
-	/** The system identifier of a legacy declaration, when one was written. */
+	/** Holds the system identifier of a legacy declaration, when one was written. */
 	readonly system?: string
 }
 
 /**
- * The root of a parsed AST - the ordered children of the whole input, whether that input
- * was a full page or one fragment. The value {@link HTMLInterface.document} holds.
+ * Represents the root of a parsed AST - the ordered children of the whole input, whether that
+ * input was a full page or one fragment. The value {@link HTMLInterface.document} holds.
  */
 export interface HTMLDocument {
 	readonly category: 'document'
-	/** The top-level nodes, in source order. */
+	/** Holds the top-level nodes, in source order. */
 	readonly children: readonly HTMLNode[]
 }
 
 /**
- * Any node in an HTML AST - the {@link HTMLDocument} root or one of its descendants. The
+ * Represents any node in an HTML AST - the {@link HTMLDocument} root or one of its descendants. The
  * exhaustive set every guard, traversal, fold table, and renderer covers, discriminated
  * by `category`.
  */
 export type HTMLNode = HTMLDocument | ElementNode | TextNode | CommentNode | DoctypeNode
 
 /**
- * A half-open region of the original HTML input, measured in UTF-16 code units.
+ * Represents a half-open region of the original HTML input, measured in UTF-16 code units.
  *
  * @remarks
  * `start` is inclusive and `end` is exclusive. The coordinates address the string before
  * parser normalization changes CRLF, carriage returns, or null characters.
  */
 export interface HTMLSpan {
-	/** The inclusive original-input offset. */
+	/** Holds the inclusive original-input offset. */
 	readonly start: number
-	/** The exclusive original-input offset. */
+	/** Holds the exclusive original-input offset. */
 	readonly end: number
 }
 
@@ -184,9 +187,9 @@ export type HTMLSource = readonly [source: string, offsets: readonly number[]]
  * `projectDepth` is what puts them on the single scale both stacks compare on.
  */
 export interface HTMLOpenPosition {
-	/** Whether the depth-overflow stack recorded the occurrence. */
+	/** Indicates whether the depth-overflow stack recorded the occurrence. */
 	readonly overflow: boolean
-	/** The occurrence's position within the stack that recorded it. */
+	/** Holds the occurrence's position within the stack that recorded it. */
 	readonly position: number
 }
 
@@ -198,9 +201,9 @@ export interface HTMLOpenPosition {
  * there without recomputing the boundary.
  */
 export interface HTMLScan<TNode extends HTMLNode> {
-	/** The scanned node. */
+	/** Holds the scanned node. */
 	readonly node: TNode
-	/** The first offset after the scanned construct. */
+	/** Holds the first offset after the scanned construct. */
 	readonly next: number
 }
 
@@ -229,18 +232,18 @@ export type HTMLDerivation<T> = readonly [
 
 /** Describes the text, source region, and close boundary returned by a raw-text scan. */
 export interface HTMLRawText {
-	/** The raw or entity-decoded text node. */
+	/** Holds the raw or entity-decoded text node. */
 	readonly node: TextNode
-	/** The half-open text region in the string passed to the scanner. */
+	/** Holds the half-open text region in the string passed to the scanner. */
 	readonly span: HTMLSpan
-	/** The first offset after the closing tag, or the input length when unclosed. */
+	/** Holds the first offset after the closing tag, or the input length when unclosed. */
 	readonly next: number
-	/** Whether the scan found a complete matching close tag. */
+	/** Indicates whether the scan found a complete matching close tag. */
 	readonly closed: boolean
 }
 
 /**
- * A fold handler for one node category - receives the node and its children ALREADY
+ * Represents a fold handler for one node category - receives the node and its children ALREADY
  * folded to `T`, and produces the node's own `T`. The building block of an
  * {@link HTMLHandlerMap} table.
  *
@@ -251,7 +254,7 @@ export interface HTMLRawText {
 export type HTMLHandler<TNode, T> = (node: TNode, children: readonly T[]) => T
 
 /**
- * The total fold table for {@link HTMLInterface.fold} - one {@link HTMLHandler} per node
+ * Represents the total fold table for {@link HTMLInterface.fold} - one {@link HTMLHandler} per node
  * category, keyed by that category. Every key is required, because a fold is total over
  * the AST: there is no node it may skip.
  */
@@ -269,7 +272,7 @@ export interface HTMLHandlerMap<T> {
 }
 
 /**
- * A copy-on-write node rewrite applied bottom-up by {@link HTMLInterface.map} - receives
+ * Represents a copy-on-write node rewrite applied bottom-up by {@link HTMLInterface.map} - receives
  * one node whose children have already been rewritten and returns its replacement: the
  * same node unchanged, or a new one.
  *
@@ -279,7 +282,7 @@ export interface HTMLHandlerMap<T> {
 export type HTMLRewriteHandler = (node: HTMLNode) => HTMLNode
 
 /**
- * A bottom-up pruning handler applied by `pruneDocument` - receives one node whose
+ * Represents a bottom-up pruning handler applied by `pruneDocument` - receives one node whose
  * children have already been pruned and returns the nodes that replace it.
  *
  * @param node - The node to prune, with its children already pruned
@@ -288,7 +291,7 @@ export type HTMLRewriteHandler = (node: HTMLNode) => HTMLNode
 export type HTMLPruneHandler = (node: HTMLNode) => readonly HTMLNode[]
 
 /**
- * The options for {@link HTMLInterface.sanitize}. Each allowlist key REPLACES its
+ * Describes the options for {@link HTMLInterface.sanitize}. Each allowlist key REPLACES its
  * default rather than extending it, so a caller who passes one narrows or redirects that
  * one axis and leaves the others alone.
  *
@@ -316,18 +319,18 @@ export type HTMLPruneHandler = (node: HTMLNode) => readonly HTMLNode[]
  * and re-parsing sanitized output sanitizes to the same AST.
  */
 export interface HTMLSanitizeOptions {
-	/** The allowed element names, replacing the default safe element set. */
+	/** Holds the allowed element names, replacing the default safe element set. */
 	readonly elements?: ReadonlySet<string> | readonly string[]
-	/** The allowed attribute names, replacing the default safe attribute set. */
+	/** Holds the allowed attribute names, replacing the default safe attribute set. */
 	readonly attributes?: ReadonlySet<string> | readonly string[]
-	/** The URL schemes allowed on a URL attribute, replacing the default safe scheme set. */
+	/** Holds the URL schemes allowed on a URL attribute, replacing the default safe scheme set. */
 	readonly schemes?: ReadonlySet<string> | readonly string[]
-	/** Keep comment nodes instead of dropping them. */
+	/** Keeps comment nodes instead of dropping them. */
 	readonly comments?: boolean
 }
 
 /**
- * The options for {@link HTMLInterface.distill} - the content-extraction pass that
+ * Describes the options for {@link HTMLInterface.distill} - the content-extraction pass that
  * reduces a page to the prose a reader (or a language model) actually wants.
  *
  * @remarks
@@ -347,16 +350,19 @@ export interface HTMLSanitizeOptions {
  * string: rendering stays a separate, downstream choice.
  */
 export interface HTMLDistillOptions {
-	/** The URL that relative `href` / `src` values are resolved against. */
+	/** Holds the URL that relative `href` / `src` values are resolved against. */
 	readonly base?: string
-	/** The element names kept as content, replacing the default content set. */
+	/** Holds the element names kept as content, replacing the default content set. */
 	readonly elements?: ReadonlySet<string> | readonly string[]
-	/** The element names whose whole region is removed, replacing the default boilerplate set. */
+	/**
+	 * Holds the element names whose whole region is removed, replacing the default
+	 * boilerplate set.
+	 */
 	readonly boilerplate?: ReadonlySet<string> | readonly string[]
 }
 
 /**
- * A parsed HTML document: the typed {@link HTMLDocument} AST plus the query, rewrite,
+ * Represents a parsed HTML document: the typed {@link HTMLDocument} AST plus the query, rewrite,
  * fold, and reduction operations over it.
  *
  * @remarks
@@ -384,7 +390,7 @@ export interface HTMLDistillOptions {
  *   `sanitize` / `distill` (the two document-shaping engines).
  */
 export interface HTMLInterface {
-	/** The stored {@link HTMLDocument} AST root. */
+	/** Exposes the stored {@link HTMLDocument} AST root. */
 	readonly document: HTMLDocument
 	/**
 	 * Returns the original-input region that produced a node in this handle's tree.
@@ -394,7 +400,7 @@ export interface HTMLInterface {
 	 */
 	span(node: HTMLNode): HTMLSpan | undefined
 	/**
-	 * THE deep traversal - a lazy, depth-first, pre-order, root-inclusive
+	 * Provides THE deep traversal - a lazy, depth-first, pre-order, root-inclusive
 	 * {@link Generator} over every {@link HTMLNode} in the document. The sync
 	 * `for (const node of html.walk())` surface is also consumable by
 	 * `for await (const node of html.walk())`, so an async pipeline needs no second
@@ -421,7 +427,7 @@ export interface HTMLInterface {
 	/** Runs a total catamorphism over the document using an {@link HTMLHandlerMap} table. */
 	fold<T>(handlers: HTMLHandlerMap<T>): T
 	/**
-	 * A web-standard {@link ReadableStream} over the root's direct children (shallow,
+	 * Returns a web-standard {@link ReadableStream} over the root's direct children (shallow,
 	 * source order) - a lazy, pull-based, backpressure-respecting source. A fresh,
 	 * independently replayable stream every call; never mutates the document.
 	 */

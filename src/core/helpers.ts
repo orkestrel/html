@@ -141,7 +141,7 @@ export function projectDepth(overflow: boolean, position: number, height: number
 }
 
 /**
- * Lowercase only ASCII uppercase characters, preserving every other code point exactly.
+ * Lowercases only ASCII uppercase characters, preserving every other code point exactly.
  *
  * @param value - The source value
  * @returns The value with `A` through `Z` lowercased
@@ -151,40 +151,40 @@ export function lowercaseASCII(value: string): string {
 }
 
 /**
- * Determine whether an element name is void.
+ * Determines whether an element name is void.
  *
  * @param name - The element name
- * @returns `true` when the canonical element set declares the name void
+ * @returns True if the canonical element set declares the name void; false otherwise
  */
 export function isVoidElement(name: string): boolean {
 	return VOID_ELEMENTS.includes(name.toLowerCase())
 }
 
 /**
- * Determine whether an element name contains verbatim raw text.
+ * Determines whether an element name contains verbatim raw text.
  *
  * @param name - The element name
- * @returns `true` for `script` and `style`
+ * @returns True if the name is `script` or `style`; false otherwise
  */
 export function isRawElement(name: string): boolean {
 	return RAW_ELEMENTS.includes(name.toLowerCase())
 }
 
 /**
- * Determine whether an element name contains decoded literal text.
+ * Determines whether an element name contains decoded literal text.
  *
  * @param name - The element name
- * @returns `true` for `title` and `textarea`
+ * @returns True if the name is `title` or `textarea`; false otherwise
  */
 export function isLiteralElement(name: string): boolean {
 	return LITERAL_ELEMENTS.includes(name.toLowerCase())
 }
 
 /**
- * Determine whether an element name is a block boundary.
+ * Determines whether an element name is a block boundary.
  *
  * @param name - The element name
- * @returns `true` when the canonical block set contains the name
+ * @returns True if the canonical block set contains the name; false otherwise
  */
 export function isBlockElement(name: string): boolean {
 	return BLOCK_ELEMENTS.includes(name.toLowerCase())
@@ -201,7 +201,7 @@ export function isEmptyElement(element: ElementNode): boolean {
 }
 
 /**
- * Decode numeric and semicolon-terminated WHATWG named character references in a string.
+ * Decodes numeric and semicolon-terminated WHATWG named character references in a string.
  *
  * @param value - The source text or attribute value
  * @returns The decoded value, retaining unknown named references literally
@@ -267,7 +267,7 @@ export function decodeEntities(value: string): string {
 }
 
 /**
- * Scan an attribute source segment into ordered, first-wins attributes.
+ * Scans an attribute source segment into ordered, first-wins attributes.
  *
  * @param source - The part of a start tag after its name and before `>`
  * @returns Parsed attributes with ASCII-lowercased names and decoded values
@@ -330,7 +330,7 @@ export function scanAttributes(source: string): readonly HTMLAttribute[] {
 }
 
 /**
- * Parse one unambiguous start tag without recovery under the package's ASCII tag-name grammar.
+ * Parses one unambiguous start tag without recovery under the package's ASCII tag-name grammar.
  *
  * @param html - The exact HTML source
  * @param offset - The UTF-16 offset of the opening `<`
@@ -443,7 +443,7 @@ export function parseStartTag(html: string, offset: number): HTMLStartTag | unde
 }
 
 /**
- * Scan one complete start or close tag.
+ * Scans one complete start or close tag.
  *
  * @param html - The normalized HTML source
  * @param offset - The offset of the opening `<`
@@ -519,7 +519,7 @@ export function scanTag(html: string, offset: number): HTMLTag | undefined {
 }
 
 /**
- * Scan a standard or bogus HTML comment.
+ * Scans a standard or bogus HTML comment.
  *
  * @param html - The normalized HTML source
  * @param offset - The offset of the opening `<`
@@ -564,7 +564,7 @@ export function scanComment(html: string, offset: number): HTMLScan<CommentNode>
 }
 
 /**
- * Scan an HTML doctype with optional public and system identifiers.
+ * Scans an HTML doctype with optional public and system identifiers.
  *
  * @param html - The normalized HTML source
  * @param offset - The offset of the opening `<`
@@ -697,7 +697,7 @@ export function scanRawText(
 }
 
 /**
- * Encode the characters that have markup meaning in HTML text.
+ * Encodes the characters that have markup meaning in HTML text.
  *
  * @param value - The literal text
  * @returns The minimally encoded HTML text
@@ -707,7 +707,7 @@ export function encodeText(value: string): string {
 }
 
 /**
- * Encode the characters that have markup meaning in a double-quoted HTML attribute.
+ * Encodes the characters that have markup meaning in a double-quoted HTML attribute.
  *
  * @param value - The literal attribute value
  * @returns The minimally encoded attribute value
@@ -717,7 +717,7 @@ export function encodeAttribute(value: string): string {
 }
 
 /**
- * Decode and inspect a URL against an explicit scheme allowlist and a fixed dangerous floor.
+ * Decodes and inspects a URL against an explicit scheme allowlist and a fixed dangerous floor.
  *
  * @remarks
  * Entity decoding repeats to a small bounded fixpoint so a hand-built AST cannot defer a
@@ -779,11 +779,11 @@ export function sanitizeURL(
 }
 
 /**
- * Determine whether a URL is relative or uses an allowed non-dangerous scheme.
+ * Determines whether a URL is relative or uses an allowed non-dangerous scheme.
  *
  * @param value - The already entity-decoded URL value
  * @param schemes - The allowed absolute schemes
- * @returns `true` when the URL passes the sanitizer's protocol floor
+ * @returns True if the URL passes the sanitizer's protocol floor; false otherwise
  */
 export function isSafeURL(
 	value: string,
@@ -793,7 +793,7 @@ export function isSafeURL(
 }
 
 /**
- * Resolve a URL through the platform WHATWG URL implementation.
+ * Resolves a URL through the platform WHATWG URL implementation.
  *
  * @param value - The relative or absolute URL
  * @param base - The absolute base URL
@@ -805,7 +805,7 @@ export function resolveURL(value: string, base: string): string {
 }
 
 /**
- * Find an element attribute without case sensitivity.
+ * Finds an element attribute without case sensitivity.
  *
  * @remarks
  * A valueless attribute returns `''`, preserving the observable distinction between
@@ -827,7 +827,7 @@ export function attributeOf(node: ElementNode, name: string): string | undefined
 }
 
 /**
- * Filter an element's attributes down to the ones a sanitized document may carry.
+ * Filters an element's attributes down to the ones a sanitized document may carry.
  *
  * @remarks
  * The allowlist narrows what is kept, but fixed refusals hold whatever it contains: a
@@ -894,7 +894,7 @@ export function sanitizeAttributes(
 }
 
 /**
- * Resolve an element's URL attributes against a base URL.
+ * Resolves an element's URL attributes against a base URL.
  *
  * @remarks
  * Every {@link URL_ATTRIBUTES} value is resolved through {@link resolveURL}, so an absolute
@@ -922,7 +922,7 @@ export function resolveAttributes(node: ElementNode, base: string): readonly HTM
 }
 
 /**
- * Collapse a run of whitespace to one inter-word space and remove edge whitespace.
+ * Collapses a run of whitespace to one inter-word space and removes edge whitespace.
  *
  * @param value - Text containing arbitrary whitespace
  * @returns The collapsed text
@@ -932,7 +932,7 @@ export function collapseSpace(value: string): string {
 }
 
 /**
- * Serialize an HTML node to canonical, safety-bounded HTML.
+ * Serializes an HTML node to canonical, safety-bounded HTML.
  *
  * @remarks
  * Invalid element names unwrap to their children. Raw-text bodies containing their own
@@ -1080,7 +1080,7 @@ export function renderHTML(node: HTMLNode): string {
 }
 
 /**
- * Project an HTML node to structural plain text.
+ * Projects an HTML node to structural plain text.
  *
  * @remarks
  * Block and line-break elements contribute newline boundaries, adjacent table cells use
@@ -1230,7 +1230,7 @@ export function renderText(node: HTMLNode): string {
 }
 
 /**
- * Walk an HTML node depth-first in pre-order, including the supplied root.
+ * Walks an HTML node depth-first in pre-order, including the supplied root.
  *
  * @param node - The root node
  * @returns A depth-bounded generator of visited nodes
@@ -1266,7 +1266,7 @@ export function* walkNodes(node: HTMLNode): Generator<HTMLNode> {
 }
 
 /**
- * Fold an HTML node bottom-up through a total handler table.
+ * Folds an HTML node bottom-up through a total handler table.
  *
  * @remarks
  * A node at the depth cap is folded with an empty child result list.
@@ -1456,7 +1456,7 @@ export function rewriteDocument(
 }
 
 /**
- * Restore the no-adjacent-text invariant in a rebuilt list of siblings.
+ * Restores the no-adjacent-text invariant in a rebuilt list of siblings.
  *
  * @remarks
  * Unwrapping an element splices its children into its parent's list, which can leave two

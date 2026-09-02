@@ -22,10 +22,11 @@ import { HTML_WHITESPACE, MAX_DEPTH } from './constants.js'
 import { isVoidElement } from './helpers.js'
 
 /**
- * Determine whether a code point may appear in an unambiguous HTML source token.
+ * Determines whether a code point may appear in an unambiguous HTML source token.
  *
  * @param value - The value to inspect
- * @returns `true` for a Unicode scalar outside HTML's control and noncharacter parse-error ranges
+ * @returns True if the value is a Unicode scalar outside HTML's control and noncharacter
+ * parse-error ranges; false otherwise
  */
 export function isHTMLCodePoint(value: unknown): value is number {
 	if (!isInteger(value) || value < 0 || value > 0x10ffff) return false
@@ -39,20 +40,21 @@ export function isHTMLCodePoint(value: unknown): value is number {
 }
 
 /**
- * Determine whether an arbitrary value is a structurally valid HTML attribute.
+ * Determines whether an arbitrary value is a structurally valid HTML attribute.
  *
  * @param value - The value to validate
- * @returns `true` when the value has exactly an attribute name and optional string value
+ * @returns True if the value has exactly an attribute name and an optional string
+ * value; false otherwise
  */
 export const isHTMLAttribute: Guard<HTMLAttribute> = recordOf({ name: isString, value: isString }, [
 	'value',
 ])
 
 /**
- * Determine whether an arbitrary value is a structurally valid text node.
+ * Determines whether an arbitrary value is a structurally valid text node.
  *
  * @param value - The value to validate
- * @returns `true` when the value is a text node
+ * @returns True if the value is a text node; false otherwise
  */
 export const isTextNode: Guard<TextNode> = recordOf({
 	category: literalOf('text'),
@@ -60,10 +62,10 @@ export const isTextNode: Guard<TextNode> = recordOf({
 })
 
 /**
- * Determine whether an arbitrary value is a structurally valid comment node.
+ * Determines whether an arbitrary value is a structurally valid comment node.
  *
  * @param value - The value to validate
- * @returns `true` when the value is a comment node
+ * @returns True if the value is a comment node; false otherwise
  */
 export const isCommentNode: Guard<CommentNode> = recordOf({
 	category: literalOf('comment'),
@@ -71,10 +73,10 @@ export const isCommentNode: Guard<CommentNode> = recordOf({
 })
 
 /**
- * Determine whether an arbitrary value is a structurally valid doctype node.
+ * Determines whether an arbitrary value is a structurally valid doctype node.
  *
  * @param value - The value to validate
- * @returns `true` when the value is a doctype node
+ * @returns True if the value is a doctype node; false otherwise
  */
 export const isDoctypeNode: Guard<DoctypeNode> = recordOf(
 	{
@@ -87,10 +89,11 @@ export const isDoctypeNode: Guard<DoctypeNode> = recordOf(
 )
 
 /**
- * Determine whether an arbitrary value is a valid HTML node.
+ * Determines whether an arbitrary value is a valid HTML node.
  *
  * @param value - The value to validate
- * @returns `true` when the value is a complete, cycle-free node within {@link MAX_DEPTH}
+ * @returns True if the value is a complete, cycle-free node within
+ * {@link MAX_DEPTH}; false otherwise
  */
 export function isHTMLNode(value: unknown): value is HTMLNode {
 	const outcome = attempt(() => {
@@ -159,20 +162,20 @@ export function isHTMLNode(value: unknown): value is HTMLNode {
 }
 
 /**
- * Determine whether an arbitrary value is a valid HTML document.
+ * Determines whether an arbitrary value is a valid HTML document.
  *
  * @param value - The value to validate
- * @returns `true` when the value is a document with valid descendants
+ * @returns True if the value is a document with valid descendants; false otherwise
  */
 export function isHTMLDocument(value: unknown): value is HTMLDocument {
 	return isHTMLNode(value) && value.category === 'document'
 }
 
 /**
- * Determine whether an arbitrary value is a valid element node.
+ * Determines whether an arbitrary value is a valid element node.
  *
  * @param value - The value to validate
- * @returns `true` when the value is an element with valid descendants
+ * @returns True if the value is an element with valid descendants; false otherwise
  */
 export function isElementNode(value: unknown): value is ElementNode {
 	return isHTMLNode(value) && value.category === 'element'

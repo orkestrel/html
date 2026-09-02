@@ -9,8 +9,8 @@ import { literalShape, objectShape, optionalShape, stringShape } from '@orkestre
 // the shape DSL.
 
 /**
- * The shape of an {@link HTMLAttribute} - an element attribute's name and, when the source
- * wrote one, its value. `value` is optional: its absence is what distinguishes
+ * Describes the shape of an {@link HTMLAttribute} - an element attribute's name and, when the
+ * source wrote one, its value. `value` is optional: its absence is what distinguishes
  * `<input disabled>` from `<input disabled="">`.
  *
  * @example
@@ -29,7 +29,7 @@ export const attributeShape = objectShape({
 })
 
 /**
- * The shape of a {@link TextNode} - the decoded character-data leaf.
+ * Describes the shape of a {@link TextNode} - the decoded character-data leaf.
  *
  * @example
  * ```ts
@@ -46,7 +46,7 @@ export const textShape = objectShape({
 })
 
 /**
- * The shape of a {@link CommentNode} - the verbatim, never-decoded comment leaf a bogus
+ * Describes the shape of a {@link CommentNode} - the verbatim, never-decoded comment leaf a bogus
  * comment also recovers to.
  *
  * @example
@@ -64,8 +64,8 @@ export const commentShape = objectShape({
 })
 
 /**
- * The shape of a {@link DoctypeNode} - the declared root name plus the optional public and
- * system identifiers of a legacy declaration.
+ * Describes the shape of a {@link DoctypeNode} - the declared root name plus the optional
+ * public and system identifiers of a legacy declaration.
  *
  * @example
  * ```ts

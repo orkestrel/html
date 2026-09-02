@@ -2,7 +2,7 @@ import type { HTMLDocument, HTMLInterface } from './types.js'
 import { HTML } from './HTML.js'
 
 /**
- * Create an HTML handle from an HTML string or an already-parsed {@link HTMLDocument} - the
+ * Creates an HTML handle from an HTML string or an already-parsed {@link HTMLDocument} - the
  * typed AST plus the query, rewrite, fold, streaming, and shaping operations
  * {@link HTMLInterface} exposes.
  *
