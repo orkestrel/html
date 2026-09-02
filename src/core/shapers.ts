@@ -1,12 +1,12 @@
 import { literalShape, objectShape, optionalShape, stringShape } from '@orkestrel/contract'
 
-// A shaper is a `ContractShape` VALUE - the JSON-Schema blueprint `createContract`
-// (factories.ts) compiles into a schema, a guard, a coercing parser, and a seeded generator
-// that all agree. A shape tree has no lazy or self-referential node, so only the LEAVES of
-// this AST (types.ts) can be declared here: `HTMLAttribute` and the three childless node
-// categories. `ElementNode` and `HTMLDocument` recurse into `HTMLNode` and therefore stay
-// hand-written depth- and cycle-capped guards in validators.ts. Recursion never enters the
-// shape DSL.
+// A shaper is a `ContractShape` VALUE - the JSON-Schema blueprint `createContract` from
+// `@orkestrel/contract` compiles into a schema, a guard, a coercing parser, and a seeded
+// generator that all agree. A shape tree has no lazy or self-referential node, so only the
+// LEAVES of this AST (types.ts) can be declared here: `HTMLAttribute` and the childless
+// node categories. `ElementNode` and `HTMLDocument` recurse into `HTMLNode` and therefore
+// stay hand-written depth- and cycle-capped guards in validators.ts. Recursion never enters
+// the shape DSL.
 
 /**
  * The shape of an {@link HTMLAttribute} - an element attribute's name and, when the source

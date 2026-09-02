@@ -1,10 +1,10 @@
 import type {
-	DistillOptions,
 	ElementNode,
+	HTMLDistillOptions,
 	HTMLDocument,
-	HTMLHandlers,
+	HTMLHandlerMap,
 	HTMLNode,
-	SanitizeOptions,
+	HTMLSanitizeOptions,
 	TextNode,
 } from '@src/core'
 import {
@@ -373,7 +373,7 @@ describe('HTML - reduce', () => {
 })
 
 describe('HTML - fold', () => {
-	const counted: HTMLHandlers<number> = {
+	const counted: HTMLHandlerMap<number> = {
 		document: (_node, children) => 1 + children.reduce((total, count) => total + count, 0),
 		element: (_node, children) => 1 + children.reduce((total, count) => total + count, 0),
 		text: () => 1,
@@ -390,7 +390,7 @@ describe('HTML - fold', () => {
 
 	it('folds children before their parent, so a table can rebuild a rendering', () => {
 		const page = new HTML('<h1>Hi <em>there</em></h1>')
-		const rendered: HTMLHandlers<string> = {
+		const rendered: HTMLHandlerMap<string> = {
 			document: (_node, children) => children.join(''),
 			element: (node, children) => `<${node.name}>${children.join('')}</${node.name}>`,
 			text: (node) => node.value,
@@ -420,7 +420,7 @@ describe('HTML - fold', () => {
 
 	it('contains rewrite failures but propagates query, reduce, and fold callback failures', () => {
 		const page = new HTML('<p>x</p>')
-		const handlers: HTMLHandlers<never> = {
+		const handlers: HTMLHandlerMap<never> = {
 			document: throwHostileHTMLAccess,
 			element: throwHostileHTMLAccess,
 			text: throwHostileHTMLAccess,
@@ -495,7 +495,7 @@ describe('HTML - stream', () => {
 
 describe('HTML - sanitize floor', () => {
 	it('accepts exported arrays and caller sets for every sanitize allowlist', () => {
-		expectTypeOf<SanitizeOptions['elements']>().toEqualTypeOf<
+		expectTypeOf<HTMLSanitizeOptions['elements']>().toEqualTypeOf<
 			ReadonlySet<string> | readonly string[] | undefined
 		>()
 		const source =
@@ -553,8 +553,8 @@ describe('HTML - sanitize floor', () => {
 	})
 
 	it('fails closed when reading the sanitize options object or comment policy throws', () => {
-		const trapped: SanitizeOptions = new Proxy({}, { get: throwHostileHTMLAccess })
-		const comments: SanitizeOptions = {}
+		const trapped: HTMLSanitizeOptions = new Proxy({}, { get: throwHostileHTMLAccess })
+		const comments: HTMLSanitizeOptions = {}
 		Object.defineProperty(comments, 'comments', { get: throwHostileHTMLAccess })
 		for (const options of [trapped, comments]) {
 			const clean = new HTML('<script>drop</script><p onclick="x()">keep</p>').sanitize(options)
@@ -994,10 +994,10 @@ describe('HTML - adversarial sanitizer corpus', () => {
 
 describe('HTML - distill', () => {
 	it('accepts exported arrays and caller sets for both distill allowlists', () => {
-		expectTypeOf<DistillOptions['elements']>().toEqualTypeOf<
+		expectTypeOf<HTMLDistillOptions['elements']>().toEqualTypeOf<
 			ReadonlySet<string> | readonly string[] | undefined
 		>()
-		expectTypeOf<DistillOptions['boilerplate']>().toEqualTypeOf<
+		expectTypeOf<HTMLDistillOptions['boilerplate']>().toEqualTypeOf<
 			ReadonlySet<string> | readonly string[] | undefined
 		>()
 		const source = '<nav>skip</nav><main><h1>Title</h1><p>Body</p></main>'
@@ -1030,8 +1030,8 @@ describe('HTML - distill', () => {
 	})
 
 	it('fails closed when reading the distill options object or base policy throws', () => {
-		const trapped: DistillOptions = new Proxy({}, { get: throwHostileHTMLAccess })
-		const base: DistillOptions = {}
+		const trapped: HTMLDistillOptions = new Proxy({}, { get: throwHostileHTMLAccess })
+		const base: HTMLDistillOptions = {}
 		Object.defineProperty(base, 'base', { get: throwHostileHTMLAccess })
 		for (const options of [trapped, base]) {
 			const distilled = new HTML('<main><script>drop</script><p>keep</p></main>').distill(options)

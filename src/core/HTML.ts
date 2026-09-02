@@ -1,14 +1,14 @@
 import type {
-	DistillOptions,
 	ElementNode,
 	HTMLDerivation,
+	HTMLDistillOptions,
 	HTMLDocument,
-	HTMLHandlers,
+	HTMLHandlerMap,
 	HTMLInterface,
 	HTMLNode,
 	HTMLRewriteHandler,
+	HTMLSanitizeOptions,
 	HTMLSpan,
-	SanitizeOptions,
 } from './types.js'
 import { attempt } from '@orkestrel/contract'
 import {
@@ -26,8 +26,8 @@ import {
 	collapseText,
 	extractRegion,
 	foldNode,
-	mergeText,
 	isEmptyElement,
+	mergeText,
 	pruneDocument,
 	resolveAttributes,
 	renderHTML,
@@ -170,7 +170,7 @@ export class HTML implements HTMLInterface {
 	 * @param handlers - One handler per node category; a fold may skip no node
 	 * @returns The folded value of the document root
 	 */
-	fold<T>(handlers: HTMLHandlers<T>): T {
+	fold<T>(handlers: HTMLHandlerMap<T>): T {
 		return foldNode(this.#document, handlers)
 	}
 
@@ -215,7 +215,7 @@ export class HTML implements HTMLInterface {
 	 *
 	 * @remarks
 	 * Each allowlist option REPLACES its default rather than extending it, and the floor
-	 * documented on {@link SanitizeOptions} holds whatever the options say: an
+	 * documented on {@link HTMLSanitizeOptions} holds whatever the options say: an
 	 * `UNSAFE_ELEMENTS` subtree goes whole, a handler / `style` / `srcdoc` / namespaced
 	 * attribute always goes, a URL survives only as a relative or allowed-scheme value, a
 	 * safe element outside the allowlist is unwrapped to its children rather than dropped,
@@ -232,7 +232,7 @@ export class HTML implements HTMLInterface {
 	 * // `href` is kept, `onclick` is still stripped - the floor is not an allowlist
 	 * ```
 	 */
-	sanitize(options?: SanitizeOptions): HTML {
+	sanitize(options?: HTMLSanitizeOptions): HTML {
 		const outcome = attempt(() => {
 			const elements = new Set(options?.elements ?? SAFE_ELEMENTS)
 			const attributes = new Set(options?.attributes ?? SAFE_ATTRIBUTES)
@@ -276,7 +276,7 @@ export class HTML implements HTMLInterface {
 	 * renderHTML(article.document) // canonical HTML, links absolute
 	 * ```
 	 */
-	distill(options?: DistillOptions): HTML {
+	distill(options?: HTMLDistillOptions): HTML {
 		const outcome = attempt(() => {
 			const boilerplate = new Set(options?.boilerplate ?? BOILERPLATE_ELEMENTS)
 			const elements = new Set(options?.elements ?? CONTENT_ELEMENTS)

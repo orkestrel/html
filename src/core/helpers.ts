@@ -5,7 +5,7 @@ import type {
 	HTMLAttribute,
 	HTMLDerivation,
 	HTMLDocument,
-	HTMLHandlers,
+	HTMLHandlerMap,
 	HTMLNode,
 	HTMLOpenPosition,
 	HTMLPruneHandler,
@@ -1275,7 +1275,7 @@ export function* walkNodes(node: HTMLNode): Generator<HTMLNode> {
  * @param handlers - One handler for every HTML node category
  * @returns The folded value
  */
-export function foldNode<T>(node: HTMLNode, handlers: HTMLHandlers<T>): T {
+export function foldNode<T>(node: HTMLNode, handlers: HTMLHandlerMap<T>): T {
 	const stack: Array<{
 		readonly node: HTMLNode
 		readonly depth: number

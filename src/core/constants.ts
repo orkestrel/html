@@ -348,7 +348,7 @@ export const IMPLIED_BARRIERS: Readonly<Record<string, readonly string[]>> = Obj
 /**
  * The default element allowlist for `sanitize` - the document vocabulary that survives
  * unchanged. A safe element outside this set is unwrapped to its children rather than
- * dropped, so `SanitizeOptions.elements` narrows what is KEPT without ever destroying
+ * dropped, so `HTMLSanitizeOptions.elements` narrows what is KEPT without ever destroying
  * content; `UNSAFE_ELEMENTS` is the separate, unlowerable list of subtrees that are
  * removed whole.
  */
@@ -474,7 +474,7 @@ export const TABLE_CELL_ELEMENTS: readonly string[] = Object.freeze(['td', 'th']
 /**
  * The URL schemes a sanitized document may name. A relative URL - anything without a
  * `scheme:` prefix, excluding the protocol-relative forms - is always allowed; every
- * other scheme is refused. `SanitizeOptions.schemes` replaces this set but can never
+ * other scheme is refused. `HTMLSanitizeOptions.schemes` replaces this set but can never
  * admit `javascript:`, `data:`, `vbscript:`, or `file:`, which are refused outright.
  */
 export const SAFE_URL_SCHEMES: readonly string[] = Object.freeze(['http', 'https', 'mailto', 'tel'])
@@ -482,7 +482,7 @@ export const SAFE_URL_SCHEMES: readonly string[] = Object.freeze(['http', 'https
 /**
  * The attributes whose value is a URL, and therefore the values `sanitize` decodes,
  * strips of ASCII whitespace and control characters, and scheme-checks before keeping,
- * and that `distill` resolves against `DistillOptions.base`. `action` and `formaction`
+ * and that `distill` resolves against `HTMLDistillOptions.base`. `action` and `formaction`
  * are listed even though their elements are removed whole, because a hand-built AST can
  * carry them anywhere.
  */
@@ -497,7 +497,7 @@ export const URL_ATTRIBUTES: readonly string[] = Object.freeze([
 
 /**
  * The hard floor of `sanitize`: elements whose entire subtree is removed, never unwrapped,
- * no matter what `SanitizeOptions` allows. Unwrapping is what makes these dangerous -
+ * no matter what `HTMLSanitizeOptions` allows. Unwrapping is what makes these dangerous -
  * the body of a `script`, `style`, `template`, or `noscript` is text that becomes live
  * markup the moment its wrapper disappears - so the content goes with the element.
  * Foreign content (`svg`, `math`) is here because this AST has no namespaces to police,

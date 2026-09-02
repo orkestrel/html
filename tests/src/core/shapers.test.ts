@@ -1,6 +1,6 @@
 import type { CommentNode, DoctypeNode, HTMLAttribute, TextNode } from '@src/core'
 import type { Infer } from '@orkestrel/contract'
-import { attributeShape, commentShape, doctypeShape, textShape } from '@src/core'
+import { attributeShape, commentShape, doctypeShape, parseDocument, textShape } from '@src/core'
 import { createContract, seededRandom } from '@orkestrel/contract'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { TEST_SEED } from '../../setup.js'
@@ -179,6 +179,13 @@ describe('doctypeShape', () => {
 		expect(contract.parse(input)).toEqual(input)
 		expect(contract.parse(input)).not.toBe(input)
 		expect(contract.parse({ category: 'doctype' })).toBeUndefined()
+	})
+
+	it('accepts every doctype the parser produces', () => {
+		const source = '<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "legacy.dtd">'
+		const doctype = parseDocument(source).children[0]
+
+		expect(contract.is(doctype)).toBe(true)
 	})
 
 	it('infers DoctypeNode both ways', () => {

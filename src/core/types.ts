@@ -242,7 +242,7 @@ export interface HTMLRawText {
 /**
  * A fold handler for one node category - receives the node and its children ALREADY
  * folded to `T`, and produces the node's own `T`. The building block of an
- * {@link HTMLHandlers} table.
+ * {@link HTMLHandlerMap} table.
  *
  * @param node - The node being folded
  * @param children - The node's children, each already folded to `T`; empty for a leaf
@@ -255,7 +255,7 @@ export type HTMLHandler<TNode, T> = (node: TNode, children: readonly T[]) => T
  * category, keyed by that category. Every key is required, because a fold is total over
  * the AST: there is no node it may skip.
  */
-export interface HTMLHandlers<T> {
+export interface HTMLHandlerMap<T> {
 	/** Folds the {@link HTMLDocument} root from its already-folded children. */
 	readonly document: HTMLHandler<HTMLDocument, T>
 	/** Folds an {@link ElementNode} from its already-folded children (empty for a void element). */
@@ -315,7 +315,7 @@ export type HTMLPruneHandler = (node: HTMLNode) => readonly HTMLNode[]
  * Sanitizing is a fixpoint: sanitizing an already-sanitized document changes nothing,
  * and re-parsing sanitized output sanitizes to the same AST.
  */
-export interface SanitizeOptions {
+export interface HTMLSanitizeOptions {
 	/** The allowed element names, replacing the default safe element set. */
 	readonly elements?: ReadonlySet<string> | readonly string[]
 	/** The allowed attribute names, replacing the default safe attribute set. */
@@ -346,7 +346,7 @@ export interface SanitizeOptions {
  * it cannot resolve as written. The result is a pruned {@link HTMLInterface}, never a
  * string: rendering stays a separate, downstream choice.
  */
-export interface DistillOptions {
+export interface HTMLDistillOptions {
 	/** The URL that relative `href` / `src` values are resolved against. */
 	readonly base?: string
 	/** The element names kept as content, replacing the default content set. */
@@ -418,8 +418,8 @@ export interface HTMLInterface {
 	map(rewrite: HTMLRewriteHandler): HTMLInterface
 	/** Reduces the AST depth-first, pre-order into one accumulated value. */
 	reduce<T>(callback: (value: T, node: HTMLNode) => T, initial: T): T
-	/** Runs a total catamorphism over the document using an {@link HTMLHandlers} table. */
-	fold<T>(handlers: HTMLHandlers<T>): T
+	/** Runs a total catamorphism over the document using an {@link HTMLHandlerMap} table. */
+	fold<T>(handlers: HTMLHandlerMap<T>): T
 	/**
 	 * A web-standard {@link ReadableStream} over the root's direct children (shallow,
 	 * source order) - a lazy, pull-based, backpressure-respecting source. A fresh,
@@ -428,22 +428,22 @@ export interface HTMLInterface {
 	stream(): ReadableStream<HTMLNode>
 	/**
 	 * Removes every unsafe element, attribute, and URL and returns a new
-	 * {@link HTMLInterface}. The floor documented on {@link SanitizeOptions} holds
+	 * {@link HTMLInterface}. The floor documented on {@link HTMLSanitizeOptions} holds
 	 * whatever the options say.
 	 *
 	 * @param options - The sanitize allowlists and comment policy
 	 * @returns A new handle over the sanitized document; an empty document when any step
 	 * throws, because the pass fails closed
 	 */
-	sanitize(options?: SanitizeOptions): HTMLInterface
+	sanitize(options?: HTMLSanitizeOptions): HTMLInterface
 	/**
 	 * Extracts the page's content - sanitizing first, then pruning boilerplate,
-	 * chrome, and wrappers per {@link DistillOptions} - and returns a new
+	 * chrome, and wrappers per {@link HTMLDistillOptions} - and returns a new
 	 * {@link HTMLInterface}.
 	 *
 	 * @param options - The base URL and the content and boilerplate element sets
 	 * @returns A new handle over the distilled document; an empty document when any step
 	 * throws, because the pass fails closed
 	 */
-	distill(options?: DistillOptions): HTMLInterface
+	distill(options?: HTMLDistillOptions): HTMLInterface
 }

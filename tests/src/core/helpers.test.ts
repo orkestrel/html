@@ -1,4 +1,4 @@
-import type { ElementNode, HTMLDocument, HTMLHandlers, HTMLNode, HTMLStartTag } from '@src/core'
+import type { ElementNode, HTMLDocument, HTMLHandlerMap, HTMLNode, HTMLStartTag } from '@src/core'
 import {
 	MAX_DEPTH,
 	NAMED_ENTITIES,
@@ -1269,7 +1269,7 @@ describe('AST walkers', () => {
 
 	it('foldNode is a total children-first catamorphism', () => {
 		const document = parseDocument('<p>x<strong>y</strong></p><!--z-->')
-		const handlers: HTMLHandlers<number> = {
+		const handlers: HTMLHandlerMap<number> = {
 			document: (_node, children) => 1 + children.reduce((total, count) => total + count, 0),
 			element: (_node, children) => 1 + children.reduce((total, count) => total + count, 0),
 			text: () => 1,
