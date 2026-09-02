@@ -19,9 +19,10 @@ A dual-axis index into this repository's guides — by concept, and by directory
 [`contract.md`](contract.md) is a byte-identical mirror of the guide for
 `@orkestrel/contract` — this package's sole runtime dependency. It documents
 **that package's** surface (guards, combinators, parsers, and the shape DSL), not
-anything sourced in this repo; it is kept here so a reader of the HTML AST guards,
-leaf-node shapes, and compiled contracts (`isHTMLNode`, `textShape`, …)
-can see the primitives they are built from without leaving this guide set.
+anything sourced in this repo; it is kept here so a reader of the HTML AST guards
+and leaf-node shapes (`isHTMLNode`, `textShape`, …), and of the contracts a consumer
+compiles from those shapes, can see the primitives they are built from without leaving
+this guide set.
 
 [`guide.md`](guide.md) is a byte-identical mirror of the guide for
 `@orkestrel/guide` — the devDependency powering this repo's guides-parity test
