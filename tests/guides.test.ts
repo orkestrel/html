@@ -325,6 +325,20 @@ describe('flagship fences', () => {
 		expect(renderHTML(link.sanitize({ attributes: new Set(['href', 'onclick']) }).document)).toBe(
 			'<a href="/guide">g</a>',
 		)
+
+		expect(renderHTML(createHTML('<img src="/x.png" alt="x">').sanitize().document)).toBe(
+			'<img alt="x">',
+		)
+		expect(
+			renderHTML(createHTML('<a href="java&#115;cript:alert(1)">bad</a>').sanitize().document),
+		).toBe('<a>bad</a>')
+		expect(
+			renderHTML(
+				createHTML(
+					'<table><tr><td align=" Center ">c</td></tr></table><p align="center">p</p>',
+				).sanitize({ attributes: ['align'] }).document,
+			),
+		).toBe('<table><tr><td align="center">c</td></tr></table><p>p</p>')
 	})
 
 	it('distills a page to its content and keeps the handle a projection choice', () => {
@@ -552,6 +566,9 @@ describe('flagship fences', () => {
 			"renderHTML(page.sanitize({ elements: SAFE_ELEMENTS, comments: true }).document)\n// '<div><p>Hi <a>bad</a></p><!-- note --></div>'",
 			'const link = createHTML(\'<a href="/guide" onclick="steal()" title="Guide">g</a>\')',
 			"renderHTML(link.sanitize({ attributes: new Set(['href', 'onclick']) }).document)\n// '<a href=\"/guide\">g</a>'",
+			'renderHTML(createHTML(\'<img src="/x.png" alt="x">\').sanitize().document)\n// \'<img alt="x">\' - alt kept, resource src removed by the default attributes',
+			"renderHTML(createHTML('<a href=\"java&#115;cript:alert(1)\">bad</a>').sanitize().document)\n// '<a>bad</a>' - the entity-obfuscated scheme is decoded and refused",
+			'renderHTML(\n\tcreateHTML(\'<table><tr><td align=" Center ">c</td></tr></table><p align="center">p</p>\').sanitize(\n\t\t{ attributes: [\'align\'] },\n\t).document,\n)\n// \'<table><tr><td align="center">c</td></tr></table><p>p</p>\' - only a cell keeps trimmed lowercase align',
 			'html: \'<nav>Menu</nav><main><h1>Title</h1><p>Read the <a href="/b">guide</a>.</p></main>\',',
 			"url: 'https://x.dev/docs/page',",
 			'const safe = page.sanitize()',

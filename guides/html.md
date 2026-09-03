@@ -439,6 +439,19 @@ renderHTML(page.sanitize({ elements: SAFE_ELEMENTS, comments: true }).document)
 const link = createHTML('<a href="/guide" onclick="steal()" title="Guide">g</a>')
 renderHTML(link.sanitize({ attributes: new Set(['href', 'onclick']) }).document)
 // '<a href="/guide">g</a>' - href kept, onclick still stripped: the floor is not an allowlist
+
+renderHTML(createHTML('<img src="/x.png" alt="x">').sanitize().document)
+// '<img alt="x">' - alt kept, resource src removed by the default attributes
+
+renderHTML(createHTML('<a href="java&#115;cript:alert(1)">bad</a>').sanitize().document)
+// '<a>bad</a>' - the entity-obfuscated scheme is decoded and refused
+
+renderHTML(
+	createHTML('<table><tr><td align=" Center ">c</td></tr></table><p align="center">p</p>').sanitize(
+		{ attributes: ['align'] },
+	).document,
+)
+// '<table><tr><td align="center">c</td></tr></table><p>p</p>' - only a cell keeps trimmed lowercase align
 ```
 
 ### Distill a page down to its content
