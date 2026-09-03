@@ -10,7 +10,7 @@ import type {
 } from './types.js'
 import {
 	arrayOf,
-	attempt,
+	holds,
 	isArray,
 	isInteger,
 	isRecord,
@@ -96,7 +96,7 @@ export const isDoctypeNode: Guard<DoctypeNode> = recordOf(
  * {@link MAX_DEPTH}; false otherwise
  */
 export function isHTMLNode(value: unknown): value is HTMLNode {
-	const outcome = attempt(() => {
+	return holds(() => {
 		const ancestors = new WeakSet<object>()
 		const visited = new WeakSet<object>()
 		const pending: Array<{
@@ -158,7 +158,6 @@ export function isHTMLNode(value: unknown): value is HTMLNode {
 		}
 		return true
 	})
-	return outcome.success && outcome.value
 }
 
 /**

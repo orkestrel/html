@@ -7,29 +7,20 @@
 import type { SpawnSyncReturns } from 'node:child_process'
 import type { TestContext } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import {
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	readdirSync,
-	readFileSync,
-	rmSync,
-	statSync,
-	writeFileSync,
-} from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createScratch, destroyScratch } from '@orkestrel/test/server'
 import ts from 'typescript'
 import { afterAll, describe, expect, it } from 'vitest'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-// Windows needs a shell to launch a `.cmd`: Node refuses one directly since the
-// batch-argument hardening, and `spawnSync` returns `EINVAL` with a null status
-// rather than an exit code a caller can read. Every following argument is a literal or
-// a path this file built, so the shell has nothing to escape.
-const SHELL = process.platform === 'win32'
+// The JavaScript entry npm runs itself from, spawned through `process.execPath` so no
+// `.bin` shim and no shell are involved. Windows refuses a `.cmd` launched directly —
+// the batch-argument hardening removed that path — and reaching one through a shell is
+// what the host portability rules forbid. `prepublishOnly` and `npm run test:distribution`
+// are the invocations that run this proof, and npm sets this variable for each of them.
+const NPM_CLI = process.env.npm_execpath
 // `prepublishOnly` runs this proof as `npm run test:distribution -- --mode release`.
 // Release is the publish gate, so evidence it cannot obtain fails there and skips
 // everywhere else: a gate that passes on missing evidence proves nothing.
@@ -201,21 +192,20 @@ function readManifestName(path: string): string {
 	return manifest.name
 }
 
-function writeFile(path: string, content: string): void {
-	mkdirSync(dirname(path), { recursive: true })
-	writeFileSync(path, content)
-}
-
 function readOutput(result: SpawnSyncReturns<string>): string {
 	return `${result.stdout ?? ''}${result.stderr ?? ''}`.trim()
 }
 
 function runNpm(args: readonly string[], cwd: string): SpawnSyncReturns<string> {
-	return spawnSync(NPM, [...args], {
+	if (NPM_CLI === undefined) {
+		throw new Error(
+			'npm set no npm_execpath, so this proof cannot resolve the npm JavaScript entry to spawn. Run it through an npm script.',
+		)
+	}
+	return spawnSync(process.execPath, [NPM_CLI, ...args], {
 		cwd,
 		encoding: 'utf8',
 		env: { ...process.env, npm_config_cache: CACHE },
-		shell: SHELL,
 		windowsHide: true,
 	})
 }
@@ -479,7 +469,7 @@ function writeConsumerProbe(stage: Stage, path: string, specifiers: readonly str
 		bindings.push(`import * as ${binding} from ${JSON.stringify(specifier)}`)
 	}
 	const target = join(stage.consumer, path)
-	writeFile(target, `${bindings.join('\n')}\nexport const surface = [${names.join(', ')}]\n`)
+	SCRATCH.write(target, `${bindings.join('\n')}\nexport const surface = [${names.join(', ')}]\n`)
 	return target
 }
 
@@ -500,9 +490,8 @@ function driveRuntime(stage: Stage, specifier: string, driver: string): readonly
 // published surface back off the installed tree. Every later claim reads this
 // result, so a failure here is raised where it happens rather than once per entry.
 function buildStage(): Stage {
-	const packed = join(SCRATCH, 'packed')
-	const consumer = join(SCRATCH, 'consumer')
-	mkdirSync(packed, { recursive: true })
+	const packed = SCRATCH.ensure('packed')
+	const consumer = SCRATCH.ensure('consumer')
 	const pack = runNpm(['pack', '--ignore-scripts', '--pack-destination', packed], ROOT)
 	if (pack.status !== 0) throw new Error(`npm pack refused this workspace: ${readOutput(pack)}`)
 	const archives = readdirSync(packed).filter((name) => name.endsWith('.tgz'))
@@ -510,9 +499,9 @@ function buildStage(): Stage {
 	if (archives.length !== 1 || archive === undefined) {
 		throw new Error(`npm pack wrote no single archive: ${archives.join(', ')}`)
 	}
-	writeFile(join(consumer, 'package.json'), CONSUMER_MANIFEST)
-	writeFile(join(consumer, ESM_DRIVER), ESM_DRIVER_SOURCE)
-	writeFile(join(consumer, CJS_DRIVER), CJS_DRIVER_SOURCE)
+	SCRATCH.write(join(consumer, 'package.json'), CONSUMER_MANIFEST)
+	SCRATCH.write(join(consumer, ESM_DRIVER), ESM_DRIVER_SOURCE)
+	SCRATCH.write(join(consumer, CJS_DRIVER), CJS_DRIVER_SOURCE)
 	const install = runNpm(
 		['install', '--ignore-scripts', '--no-audit', '--no-fund', join(packed, archive)],
 		consumer,
@@ -576,13 +565,14 @@ function buildStage(): Stage {
 	return { consumer, installed, archives, entries, subpaths, undeclared, excluded, targets }
 }
 
-const SCRATCH = mkdtempSync(join(tmpdir(), 'distribution-'))
-const CACHE = join(SCRATCH, 'cache')
-mkdirSync(CACHE, { recursive: true })
+const SCRATCH = createScratch({ prefix: 'distribution-' })
+const CACHE = SCRATCH.ensure('cache')
 // The scratch tree holds the npm cache, the packed archive, and the installed
-// consumer, so its removal is registered before the first thing that can throw.
-afterAll(() => {
-	rmSync(SCRATCH, { force: true, recursive: true })
+// consumer, so its removal is registered before the first thing that can throw. A
+// just-stopped npm child can still hold the directory, so the removal retries inside
+// `destroyScratch`'s budget rather than failing the run on the first refusal.
+afterAll(async () => {
+	await destroyScratch(SCRATCH)
 })
 
 // Installing the packed archive resolves its own runtime dependencies, so an
@@ -601,7 +591,7 @@ function openStage(): Stage | undefined {
 		}
 		return buildStage()
 	} catch (error) {
-		rmSync(SCRATCH, { force: true, recursive: true })
+		SCRATCH.destroy()
 		throw error
 	}
 }
@@ -611,8 +601,8 @@ const STAGED = STAGE !== undefined
 
 describe('distribution classifiers', () => {
 	it('classifies synthetic export mappings without a registry stage', () => {
-		const root = join(SCRATCH, 'classifiers')
-		writeFile(
+		const root = SCRATCH.ensure('classifiers')
+		SCRATCH.write(
 			join(root, 'package.json'),
 			JSON.stringify({
 				type: 'commonjs',
@@ -639,8 +629,8 @@ describe('distribution classifiers', () => {
 				},
 			}),
 		)
-		writeFile(join(root, 'module/package.json'), '{ "type": "module" }\n')
-		writeFile(join(root, 'commonjs/package.json'), '{ "type": "commonjs" }\n')
+		SCRATCH.write(join(root, 'module/package.json'), '{ "type": "module" }\n')
+		SCRATCH.write(join(root, 'commonjs/package.json'), '{ "type": "commonjs" }\n')
 		const manifest = readJson(join(root, 'package.json'))
 		if (!isRecord(manifest) || !isRecord(manifest.exports)) {
 			throw new Error('The classifier fixture declares no exports map')

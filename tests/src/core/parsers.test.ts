@@ -337,7 +337,7 @@ describe('parseDocument entities and declarations', () => {
 })
 
 describe('parseDocument hostile corpus totality', () => {
-	// Timeout basis for the five sized parses that follow: each measured 25–137 ms across the
+	// Timeout basis for the sized parses that follow: each measured 25–137 ms across the
 	// scoped `test:src:core` runs on 2026-08-24, so 30 s is far past any loaded-host reading and
 	// catches a hang rather than grading the parse. The growth pairs these inputs came from live
 	// in the benchmark block at the end of this file.
@@ -507,7 +507,7 @@ describe('parseDocument parse and guard soundness', () => {
 	})
 })
 
-// How parse cost moves as each hostile input doubles. The suite above proves what the parse
+// How parse cost moves as each hostile input doubles. The preceding suite proves what the parse
 // returns; these report what it costs and assert nothing, so only `npm run test:bench` collects
 // them and no gate reads them. Each pair is the input pair the deleted wall-clock ratio
 // assertions used.

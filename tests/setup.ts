@@ -23,13 +23,90 @@ export const WHATWG_NAMED_ENTITIES: Readonly<Record<string, string>> = Object.fr
 /** The shared seed for deterministic generated test input. */
 export const TEST_SEED = 42
 
+/** One mutation attempt against a frozen collection, beside what restores it. */
+export interface CollectionMutation {
+	readonly collection: object
+	readonly remove: string
+	readonly key: string
+	readonly value: unknown
+	readonly original: unknown
+}
+
+/**
+ * Attempt every mutation shape a caller could reach an exported collection through.
+ *
+ * @remarks
+ * Array, `Set`, and `Map` each answer a different mutator, so one attempt covers all
+ * three: `delete` / `add` / `set` where the collection declares them, an indexed write
+ * behind `indexOf`, and a bare property write and delete. A frozen collection refuses
+ * every one of them silently outside strict mode, which is why the caller asserts the
+ * collection's contents afterwards rather than the return value here.
+ *
+ * @param mutation - The collection and the values to write, remove, and restore
+ */
+export function attemptCollectionMutation(mutation: CollectionMutation): void {
+	const remove = Reflect.get(mutation.collection, 'delete')
+	if (typeof remove === 'function') Reflect.apply(remove, mutation.collection, [mutation.remove])
+	const add = Reflect.get(mutation.collection, 'add')
+	if (typeof add === 'function') Reflect.apply(add, mutation.collection, [mutation.value])
+	const set = Reflect.get(mutation.collection, 'set')
+	if (typeof set === 'function') {
+		Reflect.apply(set, mutation.collection, [mutation.key, mutation.value])
+	}
+	const indexOf = Reflect.get(mutation.collection, 'indexOf')
+	if (typeof indexOf === 'function') {
+		const index = Reflect.apply(indexOf, mutation.collection, [mutation.remove])
+		if (typeof index === 'number' && index >= 0) {
+			Reflect.set(mutation.collection, String(index), mutation.value)
+		}
+	}
+	Reflect.set(mutation.collection, '0', mutation.value)
+	Reflect.deleteProperty(mutation.collection, '0')
+	Reflect.set(mutation.collection, mutation.key, mutation.value)
+	Reflect.deleteProperty(mutation.collection, mutation.remove)
+}
+
+/**
+ * Undo every write {@link attemptCollectionMutation} lands on a collection that accepted it.
+ *
+ * @remarks
+ * A frozen collection accepted nothing, so this is a no-op there. An unfrozen one is
+ * returned to its original contents, which is what keeps a failing immutability
+ * assertion from leaking into the suites that read the same collection afterwards.
+ *
+ * @param mutation - The same collection and values the attempt was given
+ */
+export function restoreCollectionMutation(mutation: CollectionMutation): void {
+	const add = Reflect.get(mutation.collection, 'add')
+	if (typeof add === 'function') Reflect.apply(add, mutation.collection, [mutation.remove])
+	const remove = Reflect.get(mutation.collection, 'delete')
+	if (typeof remove === 'function') Reflect.apply(remove, mutation.collection, [mutation.value])
+	const set = Reflect.get(mutation.collection, 'set')
+	if (typeof set === 'function') {
+		Reflect.apply(set, mutation.collection, [mutation.remove, mutation.original])
+		if (mutation.key !== mutation.remove) {
+			Reflect.apply(remove, mutation.collection, [mutation.key])
+		}
+	}
+	const indexOf = Reflect.get(mutation.collection, 'indexOf')
+	if (typeof indexOf === 'function') {
+		const index = Reflect.apply(indexOf, mutation.collection, [mutation.value])
+		if (typeof index === 'number' && index >= 0) {
+			Reflect.set(mutation.collection, String(index), mutation.remove)
+		}
+	}
+	Reflect.set(mutation.collection, '0', mutation.original)
+	Reflect.set(mutation.collection, mutation.remove, mutation.original)
+	if (mutation.key !== mutation.remove) Reflect.deleteProperty(mutation.collection, mutation.key)
+}
+
 /**
  * Build a realistic article page carrying every region the distiller prunes.
  *
  * @remarks
  * One page with navigation, a hidden banner, a hidden paragraph, a tracking
  * script, a wrapper `div`, a fenced code block, an empty element, and a footer -
- * so one distill assertion covers the whole pipeline instead of nine fragments.
+ * so one distill assertion covers the whole pipeline instead of a fragment per region.
  *
  * @returns The page source
  */
@@ -50,12 +127,6 @@ export function buildHTMLPageInput(): string {
 		'<footer>Footer</footer>',
 		'</body></html>',
 	].join('')
-}
-
-/** Whether a repository-relative Vue SFC belongs to the private browser application. */
-export function isBrowserVuePath(path: string): boolean {
-	const normalized = path.replaceAll('\\', '/')
-	return normalized.startsWith('app/browser/')
 }
 
 /**
@@ -114,7 +185,8 @@ export function buildHTMLRoundtripCorpus(): readonly HTMLDocument[] {
 }
 
 /**
- * Build every unique bounded comment-token source from three introducers and a small alphabet.
+ * Build every unique bounded comment-token source from the `<!--`, `<!`, and `<?` introducers
+ * and a small alphabet.
  *
  * @returns All sources with a `<!--`, `<!`, or `<?` introducer and up to six suffix characters
  */
@@ -594,7 +666,7 @@ export function buildURLSafetyCorpus(): readonly URLSafetyCase[] {
 }
 
 /** The URL-safety corpus's threat families, in corpus order. */
-export const URL_SAFETY_GROUPS: readonly string[] = [
+export const URL_SAFETY_GROUPS: readonly string[] = Object.freeze([
 	'controls',
 	'case',
 	'relative',
@@ -602,7 +674,7 @@ export const URL_SAFETY_GROUPS: readonly string[] = [
 	'schemes',
 	'entities',
 	'escaping',
-]
+])
 
 /**
  * Build a hand-authored document deeper than the parser permits.

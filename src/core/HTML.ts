@@ -251,7 +251,7 @@ export class HTML implements HTMLInterface {
 	 * and returns a NEW {@link HTML}.
 	 *
 	 * @remarks
-	 * The pipeline runs in five stages: every `boilerplate` region and every element marked
+	 * The pipeline runs in this order: every `boilerplate` region and every element marked
 	 * `hidden` or `aria-hidden="true"` is dropped whole; the survivors are sanitized with the
 	 * DEFAULTS, because distilling narrows content and never widens the security floor; the
 	 * document is re-rooted at its single `main`, or failing that its single `article`, when
@@ -261,9 +261,9 @@ export class HTML implements HTMLInterface {
 	 * finally every URL attribute is resolved against `base` when one is given. The result is
 	 * a pruned {@link HTMLInterface}, never a string: rendering stays a downstream choice.
 	 *
-	 * The `hidden` stage runs BEFORE the sanitize stage by necessity - `hidden` and
+	 * The `hidden` pass runs BEFORE the sanitize pass by necessity - `hidden` and
 	 * `aria-hidden` are outside `SAFE_ATTRIBUTES`, so sanitizing first would consume the
-	 * evidence this stage reads. Pruning more before the floor is applied can never admit
+	 * evidence that pass reads. Pruning more before the floor is applied can never admit
 	 * anything the floor would have refused.
 	 *
 	 * @param options - The base URL and the content and boilerplate element sets

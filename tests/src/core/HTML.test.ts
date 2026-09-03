@@ -381,7 +381,7 @@ describe('HTML - fold', () => {
 		doctype: () => 1,
 	}
 
-	it('is total over all five categories and agrees with reduce', () => {
+	it('is total over every category and agrees with reduce', () => {
 		const page = new HTML('<!DOCTYPE html><p>x</p><!--note-->')
 		const categories = new Set(page.reduce<string[]>((seen, node) => [...seen, node.category], []))
 		expect([...categories].sort()).toEqual(['comment', 'doctype', 'document', 'element', 'text'])
@@ -760,7 +760,7 @@ describe('HTML - sanitize floor', () => {
 		}
 	})
 
-	it('drops hand-built close-sequence comments through sanitize and preserves law three', () => {
+	it('drops hand-built close-sequence comments through sanitize and preserves the sanitize fixpoint law', () => {
 		const values = ['x--><script>alert(1)</script>', 'x--!><img src=x onerror=alert(1)>']
 		for (const value of values) {
 			const document: HTMLDocument = {

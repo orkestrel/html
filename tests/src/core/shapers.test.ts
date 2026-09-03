@@ -6,7 +6,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import { TEST_SEED } from '../../setup.js'
 
 // Each shape compiles (through createContract) into a schema, a guard, a parser, and a
-// generator that must agree in lockstep. These four are the LEAVES of the HTML AST: the
+// generator that must agree in lockstep. These shapes are the LEAVES of the HTML AST: the
 // element and document nodes recurse into HTMLNode, which a shape tree cannot express, so
 // they stay hand-written capped guards in validators.ts.
 

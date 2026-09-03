@@ -1,4 +1,4 @@
-/** Lists the five code points HTML treats as syntax whitespace. */
+/** Lists the code points HTML treats as syntax whitespace. */
 export const HTML_WHITESPACE = ' \t\n\f\r'
 
 /**
@@ -433,7 +433,7 @@ export const SAFE_ELEMENTS: readonly string[] = Object.freeze([
  * Lists the default attribute allowlist for `sanitize` - the attributes that describe content
  * rather than fetch, script, or style it. Deliberately narrow: no `id`, no `style`, no
  * event handler, and no resource `src`, so a sanitized `img` keeps its `alt` text and
- * loses its download. `class` is kept because it is inert once `style`, `link`, `svg`, and
+ * loses its download. `class` is kept because it is inert after `style`, `link`, `svg`, and
  * `script` are gone and it is where a code block declares its language
  * (`class="language-ts"`).
  */

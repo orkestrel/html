@@ -1,3 +1,4 @@
+import type { CollectionMutation } from '../../setup.js'
 import {
 	BLOCK_ELEMENTS,
 	BOILERPLATE_ELEMENTS,
@@ -26,64 +27,11 @@ import {
 	parseDocument,
 	renderHTML,
 } from '@src/core'
+import { attemptCollectionMutation, restoreCollectionMutation } from '../../setup.js'
 import { describe, expect, it } from 'vitest'
 
-export interface CollectionMutation {
-	readonly collection: object
-	readonly remove: string
-	readonly key: string
-	readonly value: unknown
-	readonly original: unknown
-}
-
-export function attemptCollectionMutation(mutation: CollectionMutation): void {
-	const remove = Reflect.get(mutation.collection, 'delete')
-	if (typeof remove === 'function') Reflect.apply(remove, mutation.collection, [mutation.remove])
-	const add = Reflect.get(mutation.collection, 'add')
-	if (typeof add === 'function') Reflect.apply(add, mutation.collection, [mutation.value])
-	const set = Reflect.get(mutation.collection, 'set')
-	if (typeof set === 'function') {
-		Reflect.apply(set, mutation.collection, [mutation.key, mutation.value])
-	}
-	const indexOf = Reflect.get(mutation.collection, 'indexOf')
-	if (typeof indexOf === 'function') {
-		const index = Reflect.apply(indexOf, mutation.collection, [mutation.remove])
-		if (typeof index === 'number' && index >= 0) {
-			Reflect.set(mutation.collection, String(index), mutation.value)
-		}
-	}
-	Reflect.set(mutation.collection, '0', mutation.value)
-	Reflect.deleteProperty(mutation.collection, '0')
-	Reflect.set(mutation.collection, mutation.key, mutation.value)
-	Reflect.deleteProperty(mutation.collection, mutation.remove)
-}
-
-export function restoreCollectionMutation(mutation: CollectionMutation): void {
-	const add = Reflect.get(mutation.collection, 'add')
-	if (typeof add === 'function') Reflect.apply(add, mutation.collection, [mutation.remove])
-	const remove = Reflect.get(mutation.collection, 'delete')
-	if (typeof remove === 'function') Reflect.apply(remove, mutation.collection, [mutation.value])
-	const set = Reflect.get(mutation.collection, 'set')
-	if (typeof set === 'function') {
-		Reflect.apply(set, mutation.collection, [mutation.remove, mutation.original])
-		if (mutation.key !== mutation.remove) {
-			Reflect.apply(remove, mutation.collection, [mutation.key])
-		}
-	}
-	const indexOf = Reflect.get(mutation.collection, 'indexOf')
-	if (typeof indexOf === 'function') {
-		const index = Reflect.apply(indexOf, mutation.collection, [mutation.value])
-		if (typeof index === 'number' && index >= 0) {
-			Reflect.set(mutation.collection, String(index), mutation.remove)
-		}
-	}
-	Reflect.set(mutation.collection, '0', mutation.original)
-	Reflect.set(mutation.collection, mutation.remove, mutation.original)
-	if (mutation.key !== mutation.remove) Reflect.deleteProperty(mutation.collection, mutation.key)
-}
-
 describe('behavioral collection invariants', () => {
-	it('defines exactly the five HTML ASCII whitespace characters', () => {
+	it('defines exactly the HTML ASCII whitespace characters', () => {
 		expect([...HTML_WHITESPACE]).toEqual([' ', '\t', '\n', '\f', '\r'])
 	})
 

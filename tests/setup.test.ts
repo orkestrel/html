@@ -1,8 +1,10 @@
+import type { CollectionMutation } from './setup.js'
 import type { HTMLDocument, HTMLNode } from '@src/core'
 import { MAX_DEPTH } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import WHATWG_ENTITIES from './src/core/fixtures/entities.json' with { type: 'json' }
 import {
+	attemptCollectionMutation,
 	buildBranchingHTMLElement,
 	buildCyclicHTMLNode,
 	buildDeepHTMLDocument,
@@ -26,20 +28,21 @@ import {
 	buildURLSafetyCorpus,
 	extractHTMLText,
 	hasAdjacentHTMLText,
-	isBrowserVuePath,
 	measureHTMLDepth,
+	restoreCollectionMutation,
 	returnHTMLNonIterator,
 	throwHostileHTMLAccess,
 	throwHostileHTMLGetter,
+	URL_SAFETY_GROUPS,
 	WHATWG_NAMED_ENTITIES,
 } from './setup.js'
 
 // The behavior tests/setup.ts exports to the workspace's suites, one case per contract those
 // suites rely on. Production behavior is out of scope here: helpers.test.ts pins
 // NAMED_ENTITIES against WHATWG_NAMED_ENTITIES, and it pins URL_SAFETY_GROUPS against the
-// groups buildURLSafetyCorpus carries, so neither equality is restated below. TEST_SEED is a
-// shared constant with no behavior of its own - `seededRandom` owns the determinism
-// factories.test.ts and shapers.test.ts consume through it.
+// groups buildURLSafetyCorpus carries, so neither equality is restated in the cases that
+// follow. TEST_SEED is a shared constant with no behavior of its own - `seededRandom` owns
+// the determinism factories.test.ts and shapers.test.ts consume through it.
 //
 // Every expectation is derived by a route the module cannot share: the entity table is checked
 // against the vendored fixture read directly and against WHATWG values written by hand, the
@@ -87,18 +90,40 @@ describe('setup - WHATWG entity table', () => {
 	})
 })
 
-describe('setup - browser path helper', () => {
-	it('accepts a browser application SFC written with either separator family', () => {
-		expect(isBrowserVuePath('app/browser/components/Panel.vue')).toBe(true)
-		expect(isBrowserVuePath('app\\browser\\components\\Panel.vue')).toBe(true)
-	})
+describe('setup - collection mutation', () => {
+	it('refuses a frozen array and a frozen record, and restores an unfrozen collection', () => {
+		// The unfrozen pair is the control. An attempt that lands nothing would report every
+		// frozen collection immutable without ever having tried a write that works, and a
+		// restore that lands nothing would read the same way.
+		const frozenList: readonly string[] = Object.freeze(['area', 'base'])
+		const frozenTable: Readonly<Record<string, string>> = Object.freeze({ p: 'block' })
+		const list = ['area', 'base']
+		const table: Record<string, string> = { p: 'block' }
+		const mutations: readonly CollectionMutation[] = [
+			{ collection: frozenList, remove: 'area', key: 'area', value: 'p', original: 'area' },
+			{ collection: frozenTable, remove: 'p', key: 'p', value: 'x', original: 'block' },
+			{ collection: list, remove: 'area', key: 'area', value: 'p', original: 'area' },
+			{ collection: table, remove: 'p', key: 'p', value: 'x', original: 'block' },
+		]
 
-	it('refuses a sibling environment and a prefix lookalike', () => {
-		expect(isBrowserVuePath('app/server/render.vue')).toBe(false)
-		expect(isBrowserVuePath('app/core/state.vue')).toBe(false)
-		expect(isBrowserVuePath('app/browsers/Panel.vue')).toBe(false)
-		expect(isBrowserVuePath('app/browser.vue')).toBe(false)
-		expect(isBrowserVuePath('docs/app/browser/Panel.vue')).toBe(false)
+		for (const mutation of mutations) attemptCollectionMutation(mutation)
+		expect(Object.isFrozen(frozenList)).toBe(true)
+		expect(Object.isFrozen(frozenTable)).toBe(true)
+		expect([...frozenList]).toEqual(['area', 'base'])
+		expect({ ...frozenTable }).toEqual({ p: 'block' })
+		expect([...list]).not.toEqual(['area', 'base'])
+		expect({ ...table }).not.toEqual({ p: 'block' })
+
+		for (const mutation of mutations) restoreCollectionMutation(mutation)
+		expect(Object.isFrozen(frozenList)).toBe(true)
+		expect(Object.isFrozen(frozenTable)).toBe(true)
+		expect([...frozenList]).toEqual(['area', 'base'])
+		expect({ ...frozenTable }).toEqual({ p: 'block' })
+		// Restoration returns the members. A named property the mutation cycle wrote beside them
+		// is left behind - `area` on the array, `0` on the record - which is why a caller reads
+		// the collection rather than the object.
+		expect([...list]).toEqual(['area', 'base'])
+		expect(table.p).toBe('block')
 	})
 })
 
@@ -150,7 +175,7 @@ describe('setup - HTML source builders', () => {
 		expect(mixed.split('</y>').length - 1).toBe(500)
 	})
 
-	it('enumerates every bounded comment source over the three introducers exactly once', () => {
+	it('enumerates every bounded comment source over every introducer exactly once', () => {
 		const alphabet = ['<', '!', '-', '>', 'x']
 		const expected = new Set<string>()
 		for (const prefix of ['<!--', '<!', '<?']) {
@@ -235,6 +260,20 @@ describe('setup - adversarial corpora', () => {
 		expect(blocks).toEqual([...new Set(blocks)])
 		const names = corpus.map((threat) => `${threat.group}/${threat.name}`)
 		expect(new Set(names).size).toBe(names.length)
+	})
+
+	it('refuses every mutation of the URL-safety group list', () => {
+		// helpers.test.ts compares the corpus's families against this list, so a suite that
+		// pushed, replaced, or removed a member would move the population that comparison
+		// reads rather than reporting the drift it exists to catch.
+		const original = [...URL_SAFETY_GROUPS]
+		expect(Object.isFrozen(URL_SAFETY_GROUPS)).toBe(true)
+		expect(Reflect.set(URL_SAFETY_GROUPS, '0', 'mutated')).toBe(false)
+		expect(Reflect.deleteProperty(URL_SAFETY_GROUPS, '0')).toBe(false)
+		expect(() => Reflect.apply(Array.prototype.push, URL_SAFETY_GROUPS, ['added'])).toThrow(
+			TypeError,
+		)
+		expect([...URL_SAFETY_GROUPS]).toEqual(original)
 	})
 
 	it('declares a retained value on every kept vector and none on a refused one', () => {

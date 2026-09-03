@@ -186,7 +186,7 @@ describe('HTML escaping and URL helpers', () => {
 		}
 	})
 
-	// Timeout basis: the three decodes together measured 101–116 ms across the scoped
+	// Timeout basis: the decodes together measured 101–116 ms across the scoped
 	// `test:src:core` runs on 2026-08-24, so 30 s is far past any loaded-host reading and catches
 	// a hang rather than grading the decode. The growth pairs these inputs came from live in the
 	// benchmark block at the end of this file.
@@ -667,7 +667,7 @@ describe('strict start tag parsing', () => {
 
 // The scheme and control floor `sanitizeURL` enforces, driven from `buildURLSafetyCorpus`
 // so the whole floor reads as one list of vectors and dispositions (guides/html.md §
-// The sanitize floor states the rules). The three tests after the corpus sweep are the
+// The sanitize floor states the rules). The named tests after the corpus sweep are the
 // rules that follow from WHERE this sanitizer sits — on the AST, upstream of the
 // serializer, behind a caller-replaceable allowlist — each pinned by name rather than
 // left implicit in a corpus row.
@@ -714,8 +714,9 @@ describe('sanitizeURL — URL-safety corpus', () => {
 	})
 
 	// Rule 3 — allowlist shape. The allowlist comes from the caller and REPLACES the
-	// default, so the four dangerous schemes need an unwidenable refusal of their own: a
-	// widened allowlist still admits its safe entries and still cannot buy `javascript`.
+	// default, so `javascript`, `data`, `vbscript`, and `file` need an unwidenable refusal of
+	// their own: a widened allowlist still admits its safe entries and still cannot buy
+	// `javascript`.
 	it('refuses a caller-widened dangerous scheme while honoring the same allowlist for safe ones', () => {
 		const widened = new Set(['http', 'https', 'javascript', 'data', 'vbscript', 'file'])
 		for (const scheme of ['javascript', 'data', 'vbscript', 'file']) {
@@ -1380,7 +1381,7 @@ describe('AST walkers', () => {
 	})
 })
 
-// How decode cost moves as each entity-pressure input doubles. The suite above proves what the
+// How decode cost moves as each entity-pressure input doubles. The preceding suite proves what the
 // decoder returns; these report what it costs and assert nothing, so only `npm run test:bench`
 // collects them and no gate reads them. Each pair is the input pair the deleted wall-clock ratio
 // assertions used.

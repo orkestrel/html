@@ -647,7 +647,8 @@ export function scanDoctype(html: string, offset: number): HTMLScan<DoctypeNode>
  * @param html - The normalized HTML source
  * @param offset - The first content offset after the start tag
  * @param name - The lowercased element name
- * @param entities - Whether to decode character references
+ * @param entities - If `true`, decodes character references in the scanned text; if `false`,
+ * keeps the text verbatim. Default: `false`
  * @returns The text child, its source region, next offset, and whether a complete close was found
  */
 export function scanRawText(
@@ -782,7 +783,7 @@ export function sanitizeURL(
  * Determines whether a URL is relative or uses an allowed non-dangerous scheme.
  *
  * @param value - The already entity-decoded URL value
- * @param schemes - The allowed absolute schemes
+ * @param schemes - The allowed absolute schemes. Default: `SAFE_URL_SCHEMES`
  * @returns True if the URL passes the sanitizer's protocol floor; false otherwise
  */
 export function isSafeURL(
