@@ -32,9 +32,10 @@ import {
  * fragment are the same shape.
  *
  * @remarks
- * TOTAL: malformed markup recovers per the package's documented recovery table instead of
- * throwing, so there is no error path to handle. The result never carries two adjacent text
- * siblings, which is what keeps a document equal to its own reparsed serialization.
+ * Parsing is total: malformed markup recovers per the package's documented recovery table
+ * instead of throwing, so there is no error path to handle. The result never carries two
+ * adjacent text siblings, which is what keeps a document equal to its own reparsed
+ * serialization.
  *
  * @param html - The HTML page or fragment source
  * @returns The parsed document; malformed input recovers without throwing

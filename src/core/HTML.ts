@@ -45,16 +45,17 @@ import { parseDocument, parseProvenance } from './parsers.js'
  * @remarks
  * - **Construction.** Given a `string`, the constructor runs {@link parseProvenance}, which is
  *   total: every input parses, so there is nothing to catch. Given an {@link HTMLDocument},
- *   that document is adopted AS-IS and is NOT re-validated - gate an untrusted value with
+ *   that document is adopted as-is and is not re-validated - gate an untrusted value with
  *   `isHTMLDocument` first.
  * - **Immutable.** Nothing here mutates the stored AST. `map`, `sanitize`, and `distill`
- *   each return a NEW `HTML`, and the root invariant (`category: 'document'`) always holds.
+ *   each return a new `HTML`, and the root invariant (`category: 'document'`) always holds.
  * - **Traversal order.** `walk` and the queries built on it are depth-first, pre-order, and
  *   root-inclusive; `stream` is shallow - the root's direct children only.
- * - **The two engines.** `sanitize` enforces a security floor no option can lower;
- *   `distill` extracts content, sanitizing with the defaults partway through because content
- *   extraction is not a second security surface. Both compose the pure leaves in `helpers.ts` over one shared
- *   bottom-up spine, {@link pruneDocument}.
+ * - **The engines.** `sanitize` enforces a security floor no option can lower; `distill`
+ *   extracts content, pruning boilerplate regions and hidden chrome first, then sanitizing
+ *   with the defaults, then re-rooting and reducing to the content vocabulary, because
+ *   content extraction is not a second security surface. Each composes the pure leaves in
+ *   `helpers.ts` over one shared bottom-up spine, {@link pruneDocument}.
  *
  * @example
  * ```ts
@@ -98,7 +99,7 @@ export class HTML implements HTMLInterface {
 	}
 
 	/**
-	 * Provides THE deep traversal - a lazy, depth-first, pre-order, root-inclusive generator over
+	 * Provides the deep traversal - a lazy, depth-first, pre-order, root-inclusive generator over
 	 * every {@link HTMLNode} in the document. `find`, `filter`, and `reduce` all iterate
 	 * this one traversal, so a single ordering law covers the whole query surface.
 	 *
@@ -137,7 +138,7 @@ export class HTML implements HTMLInterface {
 	}
 
 	/**
-	 * Rewrites the AST bottom-up (copy-on-write) and returns a NEW {@link HTML}. A rewrite
+	 * Rewrites the AST bottom-up (copy-on-write) and returns a new {@link HTML}. A rewrite
 	 * that returns its node unchanged shares that subtree instead of copying it, so an
 	 * identity rewrite copies no node.
 	 *
@@ -211,10 +212,10 @@ export class HTML implements HTMLInterface {
 	}
 
 	/**
-	 * Removes every unsafe element, attribute, and URL and returns a NEW {@link HTML}.
+	 * Removes every unsafe element, attribute, and URL and returns a new {@link HTML}.
 	 *
 	 * @remarks
-	 * Each allowlist option REPLACES its default rather than extending it, and the floor
+	 * Each allowlist option replaces its default rather than extending it, and the floor
 	 * documented on {@link HTMLSanitizeOptions} holds whatever the options say: an
 	 * `UNSAFE_ELEMENTS` subtree goes whole, a handler / `style` / `srcdoc` / namespaced
 	 * attribute always goes, a URL survives only as a relative or allowed-scheme value, a
@@ -248,12 +249,12 @@ export class HTML implements HTMLInterface {
 
 	/**
 	 * Extracts the page's content - the prose a reader, or a language model, actually wants -
-	 * and returns a NEW {@link HTML}.
+	 * and returns a new {@link HTML}.
 	 *
 	 * @remarks
 	 * The pipeline runs in this order: every `boilerplate` region and every element marked
 	 * `hidden` or `aria-hidden="true"` is dropped whole; the survivors are sanitized with the
-	 * DEFAULTS, because distilling narrows content and never widens the security floor; the
+	 * defaults, because distilling narrows content and never widens the security floor; the
 	 * document is re-rooted at its single `main`, or failing that its single `article`, when
 	 * exactly one exists; everything outside `elements` is unwrapped to its children, an
 	 * attribute-free element wrapping only its own kind collapses, whitespace outside `pre`
@@ -261,7 +262,7 @@ export class HTML implements HTMLInterface {
 	 * finally every URL attribute is resolved against `base` when one is given. The result is
 	 * a pruned {@link HTMLInterface}, never a string: rendering stays a downstream choice.
 	 *
-	 * The `hidden` pass runs BEFORE the sanitize pass by necessity - `hidden` and
+	 * The `hidden` pass runs before the sanitize pass by necessity - `hidden` and
 	 * `aria-hidden` are outside `SAFE_ATTRIBUTES`, so sanitizing first would consume the
 	 * evidence that pass reads. Pruning more before the floor is applied can never admit
 	 * anything the floor would have refused.

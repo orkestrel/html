@@ -77,7 +77,7 @@ export interface HTMLTag {
  * @remarks
  * `name` is the ASCII-lowercased tag name and `attributes` are its attributes in source
  * order. `children` is empty for a void element (`<br>`, `<img>`, …): voidness is
- * DERIVED from the tag name against `VOID_ELEMENTS`, never stored as a flag, so no
+ * derived from the tag name against `VOID_ELEMENTS`, never stored as a flag, so no
  * second fact can drift from the first. A raw-text element (`script`, `style`) holds
  * exactly one {@link TextNode} carrying its verbatim, undecoded body; a literal-text
  * element (`title`, `textarea`) holds one entity-decoded {@link TextNode}.
@@ -105,7 +105,7 @@ export interface ElementNode {
  */
 export interface TextNode {
 	readonly category: 'text'
-	/** Holds the decoded text content (character references resolved, NOT yet re-encoded). */
+	/** Holds the decoded text content (character references resolved, not yet re-encoded). */
 	readonly value: string
 }
 
@@ -195,8 +195,9 @@ export type HTMLSource = readonly [source: string, offsets: readonly number[]]
  * depth-overflow stacks.
  *
  * @remarks
- * `position` indexes the stack `overflow` names, so the two fields are read together;
- * `projectDepth` is what puts them on the single scale both stacks compare on.
+ * `position` indexes the stack `overflow` names, so the fields are read together;
+ * `projectDepth` is what puts them on the single scale the represented and depth-overflow
+ * stacks compare on.
  */
 export interface HTMLOpenPosition {
 	/** Indicates whether the depth-overflow stack recorded the occurrence. */
@@ -256,7 +257,7 @@ export interface HTMLRawText {
 }
 
 /**
- * Represents a fold handler for one node category - receives the node and its children ALREADY
+ * Represents a fold handler for one node category - receives the node and its children already
  * folded to `T`, and produces the node's own `T`. The building block of an
  * {@link HTMLHandlerMap} table.
  *
@@ -304,7 +305,7 @@ export type HTMLRewriteHandler = (node: HTMLNode) => HTMLNode
 export type HTMLPruneHandler = (node: HTMLNode) => readonly HTMLNode[]
 
 /**
- * Describes the options for {@link HTMLInterface.sanitize}. Each allowlist key REPLACES its
+ * Describes the options for {@link HTMLInterface.sanitize}. Each allowlist key replaces its
  * default rather than extending it, so a caller who passes one narrows or redirects that
  * one axis and leaves the others alone.
  *
@@ -314,18 +315,18 @@ export type HTMLPruneHandler = (node: HTMLNode) => readonly HTMLNode[]
  * - `schemes` - the URL schemes allowed on a URL attribute, replacing `SAFE_URL_SCHEMES`.
  * - `comments` - keep comment nodes; they are dropped by default.
  *
- * A wider allowlist must never become a hole, so these options sit ON TOP of a floor
+ * A wider allowlist must never become a hole, so these options sit on top of a floor
  * they cannot lower:
- * - every `UNSAFE_ELEMENTS` subtree is removed WHOLE, never unwrapped, so its text can
+ * - every `UNSAFE_ELEMENTS` subtree is removed whole, never unwrapped, so its text can
  *   never resurface as content;
  * - every case-insensitive `on*` handler attribute is removed, as are `style`, `srcdoc`,
  *   and namespace/`xlink` attributes;
  * - a `URL_ATTRIBUTES` value is entity-decoded and stripped of ASCII whitespace and
- *   control characters BEFORE its scheme is checked, and `javascript:`, `data:`,
+ *   control characters before its scheme is checked, and `javascript:`, `data:`,
  *   `vbscript:`, `file:`, and the protocol-relative forms (`//`, `\\`, `/\`) are refused
  *   whatever `schemes` says - only a relative URL or an allowed scheme survives, and a
  *   value that does not is removed rather than emptied;
- * - a safe element that is merely outside the allowlist is UNWRAPPED to its children, so
+ * - a safe element that is merely outside the allowlist is unwrapped to its children, so
  *   wrapper soup melts while its content is kept, and a doctype survives untouched.
  *
  * Sanitizing is a fixpoint: sanitizing an already-sanitized document changes nothing,
@@ -353,13 +354,13 @@ export interface HTMLSanitizeOptions {
  *   `BOILERPLATE_ELEMENTS`.
  *
  * Distilling runs, in order: removes each `boilerplate` region whole and drops any element
- * marked `hidden` or `aria-hidden="true"`; sanitizes with the DEFAULTS, because content
+ * marked `hidden` or `aria-hidden="true"`; sanitizes with the defaults, because content
  * extraction is not a second security surface; re-roots at the single `main` or single
  * `article` when exactly one exists; keeps the `elements` set and unwraps everything else to
  * its children; unwraps a wrapper whose only child is another element; collapses inter-word
  * whitespace outside `pre` and `code`; drops an empty non-void element; and resolves
  * relative `href` / `src` against `base`, leaving a value it cannot resolve as written. The
- * region and chrome prune runs BEFORE the sanitize pass by necessity - `hidden` and
+ * region and chrome prune runs before the sanitize pass by necessity - `hidden` and
  * `aria-hidden` are outside `SAFE_ATTRIBUTES`, so sanitizing first would consume the
  * evidence that pass reads. The result is a pruned {@link HTMLInterface}, never a string:
  * rendering stays a separate, downstream choice.
@@ -377,12 +378,13 @@ export interface HTMLDistillOptions {
 }
 
 /**
- * Represents a parsed HTML document: the typed {@link HTMLDocument} AST plus the query, rewrite,
- * fold, and reduction operations over it.
+ * Represents a parsed HTML document: the typed {@link HTMLDocument} AST plus the query
+ * (`walk` / `find` / `filter` / `reduce`), rewrite (`map`), fold, streaming, and
+ * document-shaping (`sanitize` / `distill`) operations over it.
  *
  * @remarks
  * - **Immutable.** No method mutates the stored AST. `map`, `sanitize`, and `distill`
- *   each return a NEW {@link HTMLInterface}, and the root invariant
+ *   each return a new {@link HTMLInterface}, and the root invariant
  *   (`category: 'document'`) always holds.
  * - **Traversal order.** `walk` / `find` / `filter` / `reduce` are depth-first,
  *   pre-order, and root-inclusive; `stream` is shallow - the root's direct children only.
@@ -393,16 +395,16 @@ export interface HTMLDistillOptions {
  * - **Roundtrip laws.** Parsing what the renderer wrote returns the same AST, and
  *   rendering that reparse returns the same string - so the AST is a fixpoint and the
  *   canonical serialization is idempotent. Sanitizing is a fixpoint too, through a
- *   reparse as well as directly. What roundtrips is the AST, NOT the input bytes:
+ *   reparse as well as directly. What roundtrips is the AST, not the input bytes:
  *   canonical output lowercases names, quotes every value, re-encodes character
  *   references minimally, writes `<br/>` as `<br>`, and keeps dropped constructs
  *   dropped. A hand-built AST that violates an invariant - a void element carrying
  *   children, a raw body containing its own close tag, an invalid tag name - is rendered
- *   for SAFETY rather than fidelity.
+ *   for safety rather than fidelity.
  * - **The surface.** `document` (the AST root), `walk` (the deep traversal), `find` /
  *   `filter` / `reduce` (queries built on `walk`), `map` (the bottom-up rewrite), `fold`
  *   (the total catamorphism), `stream` (the shallow backpressured source), and
- *   `sanitize` / `distill` (the two document-shaping engines).
+ *   `sanitize` / `distill` (the document-shaping engines).
  */
 export interface HTMLInterface {
 	/** Exposes the stored {@link HTMLDocument} AST root. */
@@ -415,7 +417,7 @@ export interface HTMLInterface {
 	 */
 	span(node: HTMLNode): HTMLSpan | undefined
 	/**
-	 * Provides THE deep traversal - a lazy, depth-first, pre-order, root-inclusive
+	 * Provides the deep traversal - a lazy, depth-first, pre-order, root-inclusive
 	 * {@link Generator} over every {@link HTMLNode} in the document.
 	 *
 	 * @remarks

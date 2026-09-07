@@ -81,7 +81,8 @@ export function projectSpan(
 }
 
 /**
- * Finds the deepest open occurrence of an element name across the parser's two stacks.
+ * Finds the deepest open occurrence of an element name across the parser's represented and
+ * depth-overflow stacks.
  *
  * @remarks
  * The overflow stack holds the elements the depth cap refused to represent, so every
@@ -121,8 +122,8 @@ export function findOpenPosition(
 }
 
 /**
- * Projects one stack position onto the single depth scale both stacks compare on, so an
- * overflow position ranks below every represented one.
+ * Projects one stack position onto the single depth scale the represented and depth-overflow
+ * stacks compare on, so an overflow position ranks below every represented one.
  *
  * @param overflow - If `true`, the position indexes the overflow stack and is measured from
  * the represented stack's height; if `false`, it indexes the represented stack directly
@@ -285,7 +286,7 @@ export function decodeEntities(value: string): string {
  * with decoded values.
  *
  * @remarks
- * An unterminated quoted value minimizes to an ABSENT value rather than to invented text.
+ * An unterminated quoted value minimizes to an absent value rather than to invented text.
  *
  * @param source - The part of a start tag after its name and before `>`
  * @returns Parsed attributes with ASCII-lowercased names and decoded values
@@ -551,7 +552,7 @@ export function scanTag(html: string, offset: number): HTMLTag | undefined {
  * @remarks
  * The bogus forms - `<?…>`, a non-doctype `<!…>`, and a CDATA section - recover to the same
  * comment node, and an unterminated comment runs to the end of input. Every value produced
- * here is REPRESENTABLE: it never begins with an abrupt close and never contains one.
+ * here is representable: it never begins with an abrupt close and never contains one.
  *
  * @param html - The normalized HTML source
  * @param offset - The offset of the opening `<`
@@ -878,7 +879,7 @@ export function attributeOf(node: ElementNode, name: string): string | undefined
  * (`style`, `srcdoc`), a namespaced or `xmlns` name, and a structurally unwritable name are
  * always removed. An `align` value is narrowed to {@link TABLE_ALIGNMENTS} on
  * {@link TABLE_CELL_ELEMENTS}, and a {@link URL_ATTRIBUTES} value is passed through
- * {@link sanitizeURL}; either attribute is REMOVED - not emptied - when its extra rule
+ * {@link sanitizeURL}; either attribute is removed - not emptied - when its extra rule
  * fails. Names are ASCII-lowercased, a duplicate keeps its first occurrence, source order
  * is preserved, and a valueless attribute stays valueless.
  *
@@ -1280,8 +1281,8 @@ export function renderText(node: HTMLNode): string {
  * supplied root.
  *
  * @remarks
- * THE traversal: `walk`, `find`, `filter`, and `reduce` all iterate this one generator, so
- * one ordering law covers the whole query surface.
+ * The deep traversal: `walk`, `find`, `filter`, and `reduce` all iterate this one generator,
+ * so one ordering law covers the whole query surface.
  *
  * @param node - The root node
  * @returns A depth-bounded generator of visited nodes
@@ -1545,7 +1546,7 @@ export function mergeText(children: readonly HTMLNode[]): readonly HTMLNode[] {
  * Collapses the whitespace runs inside each direct text child of a sibling list.
  *
  * @remarks
- * Every run of whitespace becomes one space and edge whitespace is KEPT, because the space
+ * Every run of whitespace becomes one space and edge whitespace is kept, because the space
  * between `<b>one</b>` and `<i>two</i>` is a word boundary rather than decoration. Applying
  * this at the element that keeps the text - never at one being unwrapped - is what leaves a
  * `pre` or `code` body verbatim while the surrounding prose collapses.
@@ -1576,7 +1577,7 @@ export function collapseText(children: readonly HTMLNode[]): HTMLDerivation<read
  * Re-roots a document at the sole occurrence of one of the named region elements.
  *
  * @remarks
- * The names are tried in order and the first one occurring EXACTLY once in the document
+ * The names are tried in order and the first one occurring exactly once in the document
  * wins - its children become the new root's children, so everything outside the region is
  * discarded. A name that is absent, or that occurs more than once, is ambiguous evidence
  * and is skipped; when no name qualifies the document is returned unchanged.
@@ -1618,13 +1619,13 @@ export function extractRegion(
  *
  * @remarks
  * The dual of {@link rewriteDocument}: a rewrite maps one node to one node, while a prune
- * maps one node to a LIST - `[]` to drop it, `node.children` to unwrap it, `[node]` to keep
+ * maps one node to a list - `[]` to drop it, `node.children` to unwrap it, `[node]` to keep
  * it, or any other list to replace it - which is the shape every allowlist, region drop, and
  * wrapper melt needs. As in {@link rewriteDocument} the handler receives each node with its
- * children ALREADY pruned and flattened, so keeping a node needs no reconstruction and a
+ * children already pruned and flattened, so keeping a node needs no reconstruction and a
  * subtree nothing changed keeps its reference. The root is handled last and its handler is
  * expected to return the rebuilt document; a result that is not one is treated as the new
- * root's children. Descent stops at {@link MAX_DEPTH}: a node at the cap is handed NO
+ * root's children. Descent stops at {@link MAX_DEPTH}: a node at the cap is handed no
  * children, so a policy can never keep content it was unable to inspect - safety over
  * fidelity, and the same cap {@link foldNode} folds against.
  *

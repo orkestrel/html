@@ -9,8 +9,8 @@ import { HTML } from './HTML.js'
  * @remarks
  * Given a `string`, parses it into an {@link HTMLDocument}: a whole page and a bare fragment
  * are the same shape here, nothing is implied or inserted that the source did not write, and
- * parsing is TOTAL - malformed markup recovers instead of throwing, so there is no error
- * path to handle. Given an {@link HTMLDocument}, that document is adopted AS-IS and is not
+ * parsing is total - malformed markup recovers instead of throwing, so there is no error
+ * path to handle. Given an {@link HTMLDocument}, that document is adopted as-is and is not
  * re-validated; gate an untrusted value with `isHTMLDocument` first.
  *
  * @param input - An HTML string to parse, or an already-parsed {@link HTMLDocument}

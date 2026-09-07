@@ -1,7 +1,6 @@
 // The consumer-side guides-parity drop-in: runs `@orkestrel/guide`'s checks against
-// this repo's own `guides/README.md` manifest. The `@src/core` imports, the constants
-// that follow them, and the closing `flagship fences` block are this package's own, and
-// are the only parts a sibling package changes.
+// this repo's own `guides/README.md` manifest. The constants below are this
+// package's own, and are the only part a sibling package changes.
 
 import type { HTMLHandlerMap, HTMLNode } from '@src/core'
 import { describe, expect, it } from 'vitest'
@@ -219,7 +218,25 @@ for (const entry of manifest) {
 			})
 		}
 
-		it('documents an example for every API Surface function', () => {
+		// The equality gate: a `Summary` cell against its export's description paragraph, a
+		// titled fence against the `@example` of that title. `findDrift` owns the comparison
+		// and names both sides; converge the two sides with `npm run docs`, never by
+		// weakening this assertion. `findDrift` pairs an example only where a title is
+		// present on both sides, so an untitled `@example` block is outside this case. Each
+		// collected line is the spec, the key, and each side's text or `absent` — the same
+		// worklist `npm run docs` prints, so a failure here is read the way that command's
+		// output is.
+		it('keeps every compared summary and example equal to its source', () => {
+			const disagreeing: string[] = []
+			for (const drift of findDrift(guide, source)) {
+				const left = drift.guide === undefined ? 'absent' : JSON.stringify(drift.guide)
+				const right = drift.source === undefined ? 'absent' : JSON.stringify(drift.source)
+				disagreeing.push(`${entry.spec} ${drift.key}: guide ${left} source ${right}`)
+			}
+			expect(disagreeing).toEqual([])
+		})
+
+		it('documents an example for every Surface function', () => {
 			const fences = guide
 				.fences()
 				.filter((fence) => fence.language === EXAMPLE_LANGUAGE)
@@ -270,24 +287,6 @@ for (const entry of manifest) {
 			}
 		})
 
-		// The equality gate: a `Summary` cell against its export's description paragraph, a
-		// titled fence against the `@example` of that title. `findDrift` owns the comparison
-		// and names both sides; converge the two sides with `npm run docs`, never by
-		// weakening this assertion. `findDrift` pairs an example only where a title is
-		// present on both sides, so an untitled `@example` block is outside this case. Each
-		// collected line is the spec, the key, and each side's text or `absent` — the same
-		// worklist `npm run docs` prints, so a failure here is read the way that command's
-		// output is.
-		it('keeps every compared summary and example equal to its source', () => {
-			const disagreeing: string[] = []
-			for (const drift of findDrift(guide, source)) {
-				const left = drift.guide === undefined ? 'absent' : JSON.stringify(drift.guide)
-				const right = drift.source === undefined ? 'absent' : JSON.stringify(drift.source)
-				disagreeing.push(`${entry.spec} ${drift.key}: guide ${left} source ${right}`)
-			}
-			expect(disagreeing).toEqual([])
-		})
-
 		it('resolves every relative link', () => {
 			const broken = guide
 				.links()
@@ -306,13 +305,13 @@ for (const entry of manifest) {
 	})
 }
 
-// The EXECUTED half. Every preceding check reads a name, and a name that resolves proves
-// nothing about the sentence beside it, so a fence documenting a value the code
-// contradicts passes all of them. The cases run every fence in the `guides/html.md` guide
-// and the usage and start-tag fences in the `README.md` file, and assert the values their
-// trailing comments claim. Change a fence, change the transcription beside it.
+// The EXECUTED half. Every preceding check reads a name — from the guide text or
+// from the barrel — and a name that resolves proves nothing about the sentence
+// beside it, so a fence whose comment claims a value the code contradicts passes
+// all of them. The cases here run the flagship fences and assert the values their
+// comments claim. Change a fence, change the transcription beside it.
 describe('flagship fences', () => {
-	const guideText = requireValue(files['guides/html.md'], 'Missing file: guides/html.md')
+	const guideText = requireValue(files[GUIDE_SPEC], `Missing file: ${GUIDE_SPEC}`)
 	const readmeText = readFileSync(new URL('README.md', root), 'utf8')
 
 	it('parses a page, then queries it by guard, walk order, and span', () => {

@@ -124,8 +124,8 @@ export const BLOCK_ELEMENTS: readonly string[] = Object.freeze([
  * `<tr><td>x<td>y` recover into the structure their author meant, how `<p><b>x<div>y` closes
  * the open `b` element along with the paragraph, and how `<table><tr><td><p><button>x<td>y`
  * still closes the cell after the button barrier rules the paragraph out. An open `p` maps
- * to the whole `BLOCK_ELEMENTS` collection rather than to a second copy of it, so the two
- * can never drift apart.
+ * to the whole `BLOCK_ELEMENTS` collection rather than to a second copy of it, so the row
+ * and the collection can never drift apart.
  */
 export const IMPLIED_CLOSERS: Readonly<Record<string, readonly string[]>> = Object.freeze({
 	p: BLOCK_ELEMENTS,
@@ -372,7 +372,7 @@ export const IMPLIED_BARRIERS: Readonly<Record<string, readonly string[]>> = Obj
  *
  * @remarks
  * A safe element outside this set is unwrapped to its children rather than dropped, so
- * `HTMLSanitizeOptions.elements` narrows what is KEPT without ever destroying content;
+ * `HTMLSanitizeOptions.elements` narrows what is kept without ever destroying content;
  * `UNSAFE_ELEMENTS` is the separate, unlowerable list of subtrees that are removed whole.
  */
 export const SAFE_ELEMENTS: readonly string[] = Object.freeze([
@@ -616,7 +616,7 @@ export const CONTENT_ELEMENTS: readonly string[] = Object.freeze([
  * furniture that surrounds an article rather than belonging to it.
  *
  * @remarks
- * Unlike the content set, these are dropped WITH their children: a navigation menu's link
+ * Unlike the content set, these are dropped with their children: a navigation menu's link
  * text is noise in every reading of the page.
  */
 export const BOILERPLATE_ELEMENTS: readonly string[] = Object.freeze([
@@ -2777,8 +2777,8 @@ export const NAMED_ENTITIES: Readonly<Record<string, string>> = Object.freeze({
 })
 
 /**
- * Names the recursion depth the parser, the guards, the traversals, the renderers, and both
- * shaping engines honor before they stop descending.
+ * Names the recursion depth the parser, the guards, the traversals, the renderers, and the
+ * sanitize and distill engines honor before they stop descending.
  *
  * @remarks
  * The bound is what keeps pathological input - thousands of nested `div` elements, a
