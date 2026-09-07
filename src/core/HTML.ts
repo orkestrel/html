@@ -38,7 +38,7 @@ import {
 import { parseDocument, parseProvenance } from './parsers.js'
 
 /**
- * Represents a parsed HTML document - the typed {@link HTMLDocument} AST plus the query
+ * Represents a parsed document - the typed {@link HTMLDocument} AST plus the query
  * (`walk` / `find` / `filter` / `reduce`), rewrite (`map`), fold, streaming, and
  * document-shaping (`sanitize` / `distill`) operations {@link HTMLInterface} declares.
  *

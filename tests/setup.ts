@@ -5,7 +5,7 @@ import WHATWG_ENTITIES from './src/core/fixtures/entities.json' with { type: 'js
 // Fetched from https://html.spec.whatwg.org/entities.json on 2026-08-24. The repository
 // formatter reshaped the file's whitespace after the fetch; the parsed entries are the fetched
 // ones unchanged.
-/** The semicolon-terminated names and characters from the vendored WHATWG entity reference. */
+/** Holds the semicolon-terminated names and characters from the vendored WHATWG entity reference. */
 export const WHATWG_NAMED_ENTITIES: Readonly<Record<string, string>> = Object.freeze(
 	Object.fromEntries(
 		Object.entries(WHATWG_ENTITIES)
@@ -20,10 +20,10 @@ export const WHATWG_NAMED_ENTITIES: Readonly<Record<string, string>> = Object.fr
 // `.generate(random)`). Suites call `seededRandom(TEST_SEED)` for a fresh,
 // deterministic `RandomFunction`, so every suite starts from the same point.
 
-/** The shared seed for deterministic generated test input. */
+/** Holds the shared seed for deterministic generated test input. */
 export const TEST_SEED = 42
 
-/** One mutation attempt against a frozen collection, beside what restores it. */
+/** Describes one mutation attempt against a frozen collection, beside what restores it. */
 export interface CollectionMutation {
 	readonly collection: object
 	readonly remove: string
@@ -33,7 +33,7 @@ export interface CollectionMutation {
 }
 
 /**
- * Attempt every mutation shape a caller could reach an exported collection through.
+ * Attempts every mutation shape a caller could reach an exported collection through.
  *
  * @remarks
  * Array, `Set`, and `Map` each answer a different mutator, so one attempt covers all
@@ -67,7 +67,7 @@ export function attemptCollectionMutation(mutation: CollectionMutation): void {
 }
 
 /**
- * Undo every write {@link attemptCollectionMutation} lands on a collection that accepted it.
+ * Undoes every write {@link attemptCollectionMutation} lands on a collection that accepted it.
  *
  * @remarks
  * A frozen collection accepted nothing, so this is a no-op there. An unfrozen one is
@@ -101,7 +101,7 @@ export function restoreCollectionMutation(mutation: CollectionMutation): void {
 }
 
 /**
- * Build a realistic article page carrying every region the distiller prunes.
+ * Builds a realistic article page carrying every region the distiller prunes.
  *
  * @remarks
  * One page with navigation, a hidden banner, a hidden paragraph, a tracking
@@ -130,7 +130,7 @@ export function buildHTMLPageInput(): string {
 }
 
 /**
- * Build a deeply nested HTML source around one text leaf.
+ * Builds a deeply nested HTML source around one text leaf.
  *
  * @param depth - The number of nested `div` start and close tags
  * @param leaf - The text placed at the deepest point
@@ -141,7 +141,7 @@ export function buildDeepHTMLInput(depth: number, leaf = 'leaf'): string {
 }
 
 /**
- * Build a representative parser-produced corpus for HTML roundtrip laws.
+ * Builds a representative parser-produced corpus for HTML roundtrip laws.
  *
  * @returns Documents covering realistic pages and representative parser recovery families
  */
@@ -185,7 +185,7 @@ export function buildHTMLRoundtripCorpus(): readonly HTMLDocument[] {
 }
 
 /**
- * Build every unique bounded comment-token source from the `<!--`, `<!`, and `<?` introducers
+ * Builds every unique bounded comment-token source from the `<!--`, `<!`, and `<?` introducers
  * and a small alphabet.
  *
  * @returns All sources with a `<!--`, `<!`, or `<?` introducer and up to six suffix characters
@@ -211,7 +211,7 @@ export function buildHTMLCommentEnumeration(): readonly string[] {
 }
 
 /**
- * Throw whenever a hostile test value is asked to produce or expose collection behavior.
+ * Throws whenever a hostile test value is asked to produce or expose collection behavior.
  *
  * @returns Never returns
  */
@@ -220,7 +220,7 @@ export function throwHostileHTMLAccess(): never {
 }
 
 /**
- * Return a value that deliberately violates the iterator protocol.
+ * Returns a value that deliberately violates the iterator protocol.
  *
  * @returns A non-iterator value
  */
@@ -229,7 +229,7 @@ export function returnHTMLNonIterator(): number {
 }
 
 /**
- * Build the hostile allowlist shapes every shaping option must contain.
+ * Builds the hostile allowlist shapes every shaping option must contain.
  *
  * @returns Throwing-iterator, throwing-proxy, and malformed-iterator collections
  */
@@ -247,7 +247,7 @@ export function buildHostileHTMLAllowlists(): ReadonlyArray<
 }
 
 /**
- * Build an allowlist whose collection-query members throw if normalization consults them.
+ * Builds an allowlist whose collection-query members throw if normalization consults them.
  *
  * @returns An iterable Set with hostile `has` and `size` accessors
  */
@@ -259,7 +259,7 @@ export function buildShadowedHTMLAllowlist(): ReadonlySet<string> {
 }
 
 /**
- * One adversarial sanitizer input and the tokens whose absence proves its dangerous
+ * Describes one adversarial sanitizer input and the tokens whose absence proves its dangerous
  * construct was removed from both the AST and its HTML serialization.
  */
 export interface HTMLSanitizerCase {
@@ -276,7 +276,7 @@ export interface HTMLSanitizerCase {
 }
 
 /**
- * Build the adversarial corpus for the sanitizer's security boundary.
+ * Builds the adversarial corpus for the sanitizer's security boundary.
  *
  * @returns Hostile inputs spanning attributes, URL schemes, unsafe elements, parser
  * recovery, raw-text boundaries, and link-shaped literal text
@@ -504,7 +504,7 @@ export function buildHTMLSanitizerCorpus(): readonly HTMLSanitizerCase[] {
 }
 
 /**
- * Build encoded forms of every hard-banned URL scheme.
+ * Builds encoded forms of every hard-banned URL scheme.
  *
  * @returns Direct, numeric, hexadecimal, and multiply encoded scheme values
  */
@@ -527,7 +527,7 @@ export function buildEncodedHTMLSchemeCorpus(): readonly string[] {
 	return values
 }
 
-/** One entity-obfuscated URL and the exact value the HTML security floor may retain. */
+/** Describes one entity-obfuscated URL and the exact value the HTML security floor may retain. */
 export interface HTMLEntityURLCase {
 	/** The behavior-specific case name. */
 	readonly name: string
@@ -538,7 +538,7 @@ export interface HTMLEntityURLCase {
 }
 
 /**
- * Build the entity-obfuscated URL corpus that exercises every reviewed scheme character.
+ * Builds the entity-obfuscated URL corpus that exercises every reviewed scheme character.
  *
  * @returns Named controls, separators, nesting, mixed references, one allowed URL, and
  * every hard-banned scheme
@@ -580,7 +580,7 @@ export function buildHTMLEntityURLCorpus(): readonly HTMLEntityURLCase[] {
 // reading a scheme and leaves a surviving value unescaped for the serializer. Both have
 // named tests in helpers.test.ts.
 
-/** One adversarial URL and the value this package's sanitizer may retain. */
+/** Describes one adversarial URL and the value this package's sanitizer may retain. */
 export interface URLSafetyCase {
 	/** The threat family, used to inventory corpus coverage. */
 	readonly group: string
@@ -593,7 +593,7 @@ export interface URLSafetyCase {
 }
 
 /**
- * Build the URL-safety corpus for `sanitizeURL`, each vector carrying its disposition.
+ * Builds the URL-safety corpus for `sanitizeURL`, each vector carrying its disposition.
  *
  * @returns Control splices, case variance, protocol-relative forms, kept destinations,
  * refused schemes, entity obfuscation, and unescaped survivors
@@ -665,7 +665,7 @@ export function buildURLSafetyCorpus(): readonly URLSafetyCase[] {
 	]
 }
 
-/** The URL-safety corpus's threat families, in corpus order. */
+/** Lists the URL-safety corpus's threat families, in corpus order. */
 export const URL_SAFETY_GROUPS: readonly string[] = Object.freeze([
 	'controls',
 	'case',
@@ -677,7 +677,7 @@ export const URL_SAFETY_GROUPS: readonly string[] = Object.freeze([
 ])
 
 /**
- * Build a hand-authored document deeper than the parser permits.
+ * Builds a hand-authored document deeper than the parser permits.
  *
  * @param depth - The number of nested elements
  * @returns A deep document ending in one text node
@@ -691,7 +691,7 @@ export function buildDeepHTMLDocument(depth: number): HTMLDocument {
 }
 
 /**
- * Build an element whose two child references both point back to the element.
+ * Builds an element whose two child references both point back to the element.
  *
  * @param name - The element name
  * @returns A branching cyclic element graph
@@ -704,7 +704,7 @@ export function buildBranchingHTMLElement(name: string): ElementNode {
 }
 
 /**
- * Build an acyclic diamond graph with two references to the preceding node at each level.
+ * Builds an acyclic diamond graph with two references to the preceding node at each level.
  *
  * @param depth - The number of shared element layers
  * @returns A document whose path count is exponential but whose node count is linear
@@ -718,7 +718,7 @@ export function buildDiamondHTMLDocument(depth: number): HTMLDocument {
 }
 
 /**
- * Build many `pre` elements that share one comment-heavy non-code child.
+ * Builds many `pre` elements that share one comment-heavy non-code child.
  *
  * @param count - The number of `pre` elements and shared comments
  * @returns A linear-size graph that exposes repeated nested fallback walks
@@ -742,7 +742,7 @@ export function buildSharedHTMLPreDocument(count: number): HTMLDocument {
 }
 
 /**
- * Build one start tag containing many duplicate empty quoted attributes.
+ * Builds one start tag containing many duplicate empty quoted attributes.
  *
  * @param count - The number of attributes
  * @returns A complete custom-element source
@@ -752,7 +752,7 @@ export function buildHTMLAttributeInput(count: number): string {
 }
 
 /**
- * Build a mixed parser-pressure source spanning attributes, raw elements, and close soup.
+ * Builds a mixed parser-pressure source spanning attributes, raw elements, and close soup.
  *
  * @param count - The size of each adversarial family
  * @returns One source whose total size grows linearly with count
@@ -767,7 +767,7 @@ export function buildMixedHTMLInput(count: number): string {
 }
 
 /**
- * Build a deeply nested from-unknown element shape.
+ * Builds a deeply nested from-unknown element shape.
  *
  * @param depth - The number of nested element nodes
  * @returns A document-shaped unknown value
@@ -781,7 +781,7 @@ export function buildDeepHTMLNode(depth: number): unknown {
 }
 
 /**
- * Build a cyclic from-unknown element shape.
+ * Builds a cyclic from-unknown element shape.
  *
  * @returns An element whose child points back to itself
  */
@@ -793,7 +793,7 @@ export function buildCyclicHTMLNode(): unknown {
 }
 
 /**
- * Throw from a hostile property getter.
+ * Throws from a hostile property getter.
  *
  * @returns Never
  */
@@ -802,7 +802,7 @@ export function throwHostileHTMLGetter(): never {
 }
 
 /**
- * Build a value whose discriminant getter throws.
+ * Builds a value whose discriminant getter throws.
  *
  * @returns The hostile from-unknown value
  */
@@ -816,7 +816,7 @@ export function buildHostileHTMLNode(): unknown {
 }
 
 /**
- * Build a revoked proxy that throws on every structural read.
+ * Builds a revoked proxy that throws on every structural read.
  *
  * @returns The revoked proxy
  */
@@ -827,7 +827,7 @@ export function buildRevokedHTMLNode(): unknown {
 }
 
 /**
- * Build a prototype with a throwing inherited property.
+ * Builds a prototype with a throwing inherited property.
  *
  * @returns The hostile prototype
  */
@@ -841,7 +841,7 @@ export function buildHostileHTMLPrototype(): object {
 }
 
 /**
- * Collect decoded text content from a document without recursion.
+ * Collects decoded text content from a document without recursion.
  *
  * @param document - The document to traverse
  * @returns Concatenated text-node values in source order
@@ -866,7 +866,7 @@ export function extractHTMLText(document: HTMLDocument): string {
 }
 
 /**
- * Detect whether any sibling list contains adjacent text nodes.
+ * Detects whether any sibling list contains adjacent text nodes.
  *
  * @param document - The document to inspect
  * @returns `true` when the parser normalization invariant is violated
@@ -889,7 +889,7 @@ export function hasAdjacentHTMLText(document: HTMLDocument): boolean {
 }
 
 /**
- * Measure the greatest element nesting depth in a document.
+ * Measures the greatest element nesting depth in a document.
  *
  * @param document - The document to traverse
  * @returns The maximum element depth below the root

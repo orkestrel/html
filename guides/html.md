@@ -315,7 +315,7 @@ There are two renderers, and they are not equivalent. `renderHTML` is the struct
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `h1` … `h6`                  | A bare line, at no level — indistinguishable from a paragraph or a list item                                                                                             |
 | `ul` / `ol` / `li`           | One line per block inside each item, with no marker, no ordinal, no nesting depth                                                                                        |
-| `a`                          | The link TEXT only; the destination `base` just resolved is gone                                                                                                         |
+| `a`                          | The link TEXT only; the destination `base` resolved is gone                                                                                                              |
 | `img`                        | Nothing — `alt` text is an attribute, and attributes do not project                                                                                                      |
 | `table` / `tr` / `th` / `td` | Tabs preserve direct cell positions, including empty cells, and newlines preserve rows; a `th` is indistinguishable from a `td`, and spans and attributes do not survive |
 | `pre` / `code`               | Whitespace beneath `pre` stays verbatim; standalone `code` collapses normally; neither gains a fence or language marker                                                  |

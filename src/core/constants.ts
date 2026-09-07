@@ -466,7 +466,7 @@ export const TABLE_ALIGNMENTS: readonly string[] = Object.freeze(['center', 'lef
  * Lists the elements on which a sanitized `align` attribute is honored. Although `align` is
  * obsolete presentational HTML, its cell-only scope is a smaller security surface than a
  * style declaration allowlist. `sanitizeAttributes` already receives the owning element,
- * so it can narrow this allowlisted attribute just as it narrows URL attributes without a
+ * so it can narrow this allowlisted attribute the way it narrows URL attributes without a
  * per-element policy mechanism.
  */
 export const TABLE_CELL_ELEMENTS: readonly string[] = Object.freeze(['td', 'th'])
