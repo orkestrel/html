@@ -53,7 +53,13 @@ export interface HTMLStartTag {
 	readonly next: number
 }
 
-/** Represents one start or close tag returned by the total, recovering `scanTag` scanner. */
+/**
+ * Represents one start or close tag returned by the total, recovering `scanTag` scanner.
+ *
+ * @remarks
+ * A recovered start tag keeps the `next` boundary recovery chose rather than an exact one,
+ * and a close tag carries no attributes.
+ */
 export interface HTMLTag {
 	/** Holds the tag's ASCII-lowercased name. */
 	readonly name: string
@@ -90,9 +96,12 @@ export interface ElementNode {
 }
 
 /**
- * Represents a run of character data - the leaf node. `value` is the decoded text: numeric and
- * semicolon-terminated WHATWG named character references are already resolved (an unknown
- * named reference stays literal), and the renderer re-encodes `&`, `<`, and `>` on the way out.
+ * Represents a run of character data - the leaf node, whose `value` is already-decoded text.
+ *
+ * @remarks
+ * Numeric and semicolon-terminated WHATWG named character references are resolved on the
+ * way in, and an unknown named reference stays literal. The renderer re-encodes `&`, `<`,
+ * and `>` on the way out, so what roundtrips is the text rather than its source spelling.
  */
 export interface TextNode {
 	readonly category: 'text'
@@ -101,11 +110,14 @@ export interface TextNode {
 }
 
 /**
- * Represents a comment - `<!-- … -->`. `value` is the comment's verbatim inner text, never decoded
- * and never parsed as markup. The parser constructs only representable values: they never
- * begin with an abrupt `>` / `->` close and never contain `-->` / `--!>`, so rendering and
- * reparsing a parser-produced comment preserves it exactly. A hand-built value can violate
- * that invariant, in which case the renderer drops it rather than emit a breakout.
+ * Represents a comment - `<!-- … -->` - whose `value` is verbatim inner text, never decoded
+ * and never parsed as markup.
+ *
+ * @remarks
+ * The parser constructs only representable values: they never begin with an abrupt `>` /
+ * `->` close and never contain `-->` / `--!>`, so rendering and reparsing a parser-produced
+ * comment preserves it exactly. A hand-built value can violate that invariant, in which case
+ * the renderer drops it rather than emit a breakout.
  *
  * A bogus comment (`<?…>`, a non-doctype `<!…>`, or a CDATA section) recovers to this same
  * node, which is why the AST needs no processing instruction or CDATA category of its own.
@@ -198,7 +210,8 @@ export interface HTMLOpenPosition {
  *
  * @remarks
  * `next` is the first offset after the construct the scanner consumed, so a caller resumes
- * there without recomputing the boundary.
+ * there without recomputing the boundary. `TNode` is constrained to {@link HTMLNode}, so a
+ * scan result can only carry a node this AST defines.
  */
 export interface HTMLScan<TNode extends HTMLNode> {
 	/** Holds the scanned node. */
@@ -339,15 +352,17 @@ export interface HTMLSanitizeOptions {
  * - `boilerplate` - the element names whose whole region is removed, replacing
  *   `BOILERPLATE_ELEMENTS`.
  *
- * Distilling always sanitizes with the defaults first - it is content extraction, not a
- * second security surface - and then, in order: removes each `boilerplate` region whole;
- * drops any element marked `hidden` or `aria-hidden="true"`; re-roots at the single
- * `main` or single `article` when exactly one exists; keeps the `elements` set and
- * unwraps everything else to its children; unwraps a wrapper whose only child is another
- * element; collapses inter-word whitespace outside `pre` and `code`; drops an empty
- * non-void element; and resolves relative `href` / `src` against `base`, leaving a value
- * it cannot resolve as written. The result is a pruned {@link HTMLInterface}, never a
- * string: rendering stays a separate, downstream choice.
+ * Distilling runs, in order: removes each `boilerplate` region whole and drops any element
+ * marked `hidden` or `aria-hidden="true"`; sanitizes with the DEFAULTS, because content
+ * extraction is not a second security surface; re-roots at the single `main` or single
+ * `article` when exactly one exists; keeps the `elements` set and unwraps everything else to
+ * its children; unwraps a wrapper whose only child is another element; collapses inter-word
+ * whitespace outside `pre` and `code`; drops an empty non-void element; and resolves
+ * relative `href` / `src` against `base`, leaving a value it cannot resolve as written. The
+ * region and chrome prune runs BEFORE the sanitize pass by necessity - `hidden` and
+ * `aria-hidden` are outside `SAFE_ATTRIBUTES`, so sanitizing first would consume the
+ * evidence that pass reads. The result is a pruned {@link HTMLInterface}, never a string:
+ * rendering stays a separate, downstream choice.
  */
 export interface HTMLDistillOptions {
 	/** Holds the URL that relative `href` / `src` values are resolved against. */
@@ -401,8 +416,10 @@ export interface HTMLInterface {
 	span(node: HTMLNode): HTMLSpan | undefined
 	/**
 	 * Provides THE deep traversal - a lazy, depth-first, pre-order, root-inclusive
-	 * {@link Generator} over every {@link HTMLNode} in the document. The sync
-	 * `for (const node of html.walk())` surface is also consumable by
+	 * {@link Generator} over every {@link HTMLNode} in the document.
+	 *
+	 * @remarks
+	 * The sync `for (const node of html.walk())` surface is also consumable by
 	 * `for await (const node of html.walk())`, so an async pipeline needs no second
 	 * iterator. Contrast {@link HTMLInterface.stream}, which is shallow and
 	 * backpressured.
@@ -424,7 +441,11 @@ export interface HTMLInterface {
 	map(rewrite: HTMLRewriteHandler): HTMLInterface
 	/** Reduces the AST depth-first, pre-order into one accumulated value. */
 	reduce<T>(callback: (value: T, node: HTMLNode) => T, initial: T): T
-	/** Runs a total catamorphism over the document using an {@link HTMLHandlerMap} table. */
+	/**
+	 * Runs a total catamorphism over the document using an {@link HTMLHandlerMap} table -
+	 * one handler per category and no node skipped, so a structure-aware projection needs
+	 * no traversal of its own.
+	 */
 	fold<T>(handlers: HTMLHandlerMap<T>): T
 	/**
 	 * Returns a web-standard {@link ReadableStream} over the root's direct children (shallow,
@@ -443,8 +464,9 @@ export interface HTMLInterface {
 	 */
 	sanitize(options?: HTMLSanitizeOptions): HTMLInterface
 	/**
-	 * Extracts the page's content - sanitizing first, then pruning boilerplate,
-	 * chrome, and wrappers per {@link HTMLDistillOptions} - and returns a new
+	 * Extracts the page's content - pruning boilerplate regions and hidden chrome, then
+	 * sanitizing with the defaults, then re-rooting and reducing to the content
+	 * vocabulary per {@link HTMLDistillOptions} - and returns a new
 	 * {@link HTMLInterface}.
 	 *
 	 * @param options - The base URL and the content and boilerplate element sets

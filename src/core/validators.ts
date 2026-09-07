@@ -24,6 +24,11 @@ import { isVoidElement } from './helpers.js'
 /**
  * Determines whether a code point may appear in an unambiguous HTML source token.
  *
+ * @remarks
+ * HTML whitespace is allowed; every other C0 control, the C1 controls, the surrogates, and
+ * the noncharacters are refused, so a token built from accepted code points has no
+ * parse-error scalar in it.
+ *
  * @param value - The value to inspect
  * @returns True if the value is a Unicode scalar outside HTML's control and noncharacter
  * parse-error ranges; false otherwise
@@ -40,7 +45,8 @@ export function isHTMLCodePoint(value: unknown): value is number {
 }
 
 /**
- * Determines whether an arbitrary value is a structurally valid HTML attribute.
+ * Determines whether an arbitrary value is a structurally valid HTML attribute - exactly a
+ * string name, optionally a string value, and nothing else.
  *
  * @param value - The value to validate
  * @returns True if the value has exactly an attribute name and an optional string
@@ -51,7 +57,8 @@ export const isHTMLAttribute: Guard<HTMLAttribute> = recordOf({ name: isString, 
 ])
 
 /**
- * Determines whether an arbitrary value is a structurally valid text node.
+ * Determines whether an arbitrary value is a structurally valid text node - a closed
+ * `{ category: 'text', value: string }` record.
  *
  * @param value - The value to validate
  * @returns True if the value is a text node; false otherwise
@@ -62,7 +69,8 @@ export const isTextNode: Guard<TextNode> = recordOf({
 })
 
 /**
- * Determines whether an arbitrary value is a structurally valid comment node.
+ * Determines whether an arbitrary value is a structurally valid comment node - a closed
+ * `{ category: 'comment', value: string }` record.
  *
  * @param value - The value to validate
  * @returns True if the value is a comment node; false otherwise
@@ -73,7 +81,8 @@ export const isCommentNode: Guard<CommentNode> = recordOf({
 })
 
 /**
- * Determines whether an arbitrary value is a structurally valid doctype node.
+ * Determines whether an arbitrary value is a structurally valid doctype node - a declared
+ * name plus optional public and system identifiers, closed.
  *
  * @param value - The value to validate
  * @returns True if the value is a doctype node; false otherwise
@@ -89,7 +98,9 @@ export const isDoctypeNode: Guard<DoctypeNode> = recordOf(
 )
 
 /**
- * Determines whether an arbitrary value is a valid HTML node.
+ * Determines whether an arbitrary value is a valid HTML node - the value and every
+ * descendant, walked iteratively, cycle-checked, capped at {@link MAX_DEPTH}, and held to
+ * the void-element empty-children invariant.
  *
  * @param value - The value to validate
  * @returns True if the value is a complete, cycle-free node within
@@ -161,7 +172,8 @@ export function isHTMLNode(value: unknown): value is HTMLNode {
 }
 
 /**
- * Determines whether an arbitrary value is a valid HTML document.
+ * Determines whether an arbitrary value is a valid HTML document - the whole-node check
+ * narrowed to the root category, and the gate to run before adopting an untrusted document.
  *
  * @param value - The value to validate
  * @returns True if the value is a document with valid descendants; false otherwise
@@ -171,7 +183,8 @@ export function isHTMLDocument(value: unknown): value is HTMLDocument {
 }
 
 /**
- * Determines whether an arbitrary value is a valid element node.
+ * Determines whether an arbitrary value is a valid element node - the whole-node check
+ * narrowed to an element, and the natural predicate to pass to `find` or `filter`.
  *
  * @param value - The value to validate
  * @returns True if the value is an element with valid descendants; false otherwise

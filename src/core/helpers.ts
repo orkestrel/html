@@ -35,7 +35,8 @@ import {
 import { isHTMLCodePoint } from './validators.js'
 
 /**
- * Normalizes an HTML input and maps each normalized boundary to its original UTF-16 offset.
+ * Normalizes an HTML input - CRLF and a lone carriage return to one newline, `U+0000` to
+ * `U+FFFD` - and maps each normalized boundary to its original UTF-16 offset.
  *
  * @param html - The original HTML input
  * @returns The normalized source and its boundary-to-original offset map
@@ -120,7 +121,8 @@ export function findOpenPosition(
 }
 
 /**
- * Projects one stack position onto the single depth scale both stacks compare on.
+ * Projects one stack position onto the single depth scale both stacks compare on, so an
+ * overflow position ranks below every represented one.
  *
  * @param overflow - If `true`, the position indexes the overflow stack and is measured from
  * the represented stack's height; if `false`, it indexes the represented stack directly
@@ -143,6 +145,10 @@ export function projectDepth(overflow: boolean, position: number, height: number
 /**
  * Lowercases only ASCII uppercase characters, preserving every other code point exactly.
  *
+ * @remarks
+ * The strict and the recovering scanners share this one fold, so a later syntax error can
+ * never change how a name was normalized.
+ *
  * @param value - The source value
  * @returns The value with `A` through `Z` lowercased
  */
@@ -151,7 +157,8 @@ export function lowercaseASCII(value: string): string {
 }
 
 /**
- * Determines whether an element name is void.
+ * Determines whether an element name is void, matching `VOID_ELEMENTS` without case
+ * sensitivity.
  *
  * @param name - The element name
  * @returns True if the canonical element set declares the name void; false otherwise
@@ -161,7 +168,8 @@ export function isVoidElement(name: string): boolean {
 }
 
 /**
- * Determines whether an element name contains verbatim raw text.
+ * Determines whether an element name contains verbatim raw text - `script` or `style`, the
+ * parser's no-scanning boundary and the renderer's refusal boundary.
  *
  * @param name - The element name
  * @returns True if the name is `script` or `style`; false otherwise
@@ -171,7 +179,8 @@ export function isRawElement(name: string): boolean {
 }
 
 /**
- * Determines whether an element name contains decoded literal text.
+ * Determines whether an element name contains decoded literal text - `title` or `textarea`,
+ * whose body is one text node with character references resolved.
  *
  * @param name - The element name
  * @returns True if the name is `title` or `textarea`; false otherwise
@@ -181,7 +190,7 @@ export function isLiteralElement(name: string): boolean {
 }
 
 /**
- * Determines whether an element name is a block boundary.
+ * Determines whether an element name is a block boundary, matching `BLOCK_ELEMENTS`.
  *
  * @param name - The element name
  * @returns True if the canonical block set contains the name; false otherwise
@@ -191,7 +200,8 @@ export function isBlockElement(name: string): boolean {
 }
 
 /**
- * Checks whether an element has no child nodes.
+ * Checks whether an element has no child nodes - the predicate the distill pass consults
+ * before dropping an empty non-void element.
  *
  * @param element - The element to inspect
  * @returns True if `children` is empty; false otherwise
@@ -202,6 +212,10 @@ export function isEmptyElement(element: ElementNode): boolean {
 
 /**
  * Decodes numeric and semicolon-terminated WHATWG named character references in a string.
+ *
+ * @remarks
+ * A numeric reference naming an invalid scalar decodes to `U+FFFD`. An unknown named
+ * reference stays literal, exactly as the source wrote it.
  *
  * @param value - The source text or attribute value
  * @returns The decoded value, retaining unknown named references literally
@@ -267,7 +281,11 @@ export function decodeEntities(value: string): string {
 }
 
 /**
- * Scans an attribute source segment into ordered, first-wins attributes.
+ * Scans an attribute source segment into ordered, ASCII-lowercased, first-wins attributes
+ * with decoded values.
+ *
+ * @remarks
+ * An unterminated quoted value minimizes to an ABSENT value rather than to invented text.
  *
  * @param source - The part of a start tag after its name and before `>`
  * @returns Parsed attributes with ASCII-lowercased names and decoded values
@@ -331,6 +349,11 @@ export function scanAttributes(source: string): readonly HTMLAttribute[] {
 
 /**
  * Parses one unambiguous start tag without recovery under the package's ASCII tag-name grammar.
+ *
+ * @remarks
+ * Duplicate or malformed attributes, ambiguous delimiters, an invalid offset, a close tag,
+ * and incomplete input each produce no value: this is the fail-closed source boundary, and
+ * it never recovers the way the document walk does.
  *
  * @param html - The exact HTML source
  * @param offset - The UTF-16 offset of the opening `<`
@@ -445,6 +468,10 @@ export function parseStartTag(html: string, offset: number): HTMLStartTag | unde
 /**
  * Scans one complete start or close tag.
  *
+ * @remarks
+ * A trailing solidus is dropped rather than recorded, and an unterminated quoted value
+ * recovers at the next `>` instead of trusting the markup that follows it.
+ *
  * @param html - The normalized HTML source
  * @param offset - The offset of the opening `<`
  * @returns The tag and next offset, or `undefined` for an invalid or incomplete tag
@@ -520,6 +547,11 @@ export function scanTag(html: string, offset: number): HTMLTag | undefined {
 
 /**
  * Scans a standard or bogus HTML comment.
+ *
+ * @remarks
+ * The bogus forms - `<?…>`, a non-doctype `<!…>`, and a CDATA section - recover to the same
+ * comment node, and an unterminated comment runs to the end of input. Every value produced
+ * here is REPRESENTABLE: it never begins with an abrupt close and never contains one.
  *
  * @param html - The normalized HTML source
  * @param offset - The offset of the opening `<`
@@ -698,7 +730,8 @@ export function scanRawText(
 }
 
 /**
- * Encodes the characters that have markup meaning in HTML text.
+ * Encodes the characters that have markup meaning in HTML text - `&`, `<`, and `>`, and
+ * nothing else.
  *
  * @param value - The literal text
  * @returns The minimally encoded HTML text
@@ -708,7 +741,8 @@ export function encodeText(value: string): string {
 }
 
 /**
- * Encodes the characters that have markup meaning in a double-quoted HTML attribute.
+ * Encodes the characters that have markup meaning in a double-quoted HTML attribute - `&`
+ * and `"`, and nothing else.
  *
  * @param value - The literal attribute value
  * @returns The minimally encoded attribute value
@@ -723,7 +757,9 @@ export function encodeAttribute(value: string): string {
  * @remarks
  * Entity decoding repeats to a small bounded fixpoint so a hand-built AST cannot defer a
  * dangerous scheme to a later serialize-reparse pass. Input that still changes after the
- * bound fails closed.
+ * bound fails closed. This is the transform half of the URL floor {@link isSafeURL} shares,
+ * and either shape of allowlist works: the frozen constant array, or the `ReadonlySet` a
+ * caller passes through `HTMLSanitizeOptions`.
  *
  * @param value - The source URL, possibly containing HTML entities or obfuscating controls
  * @param schemes - The allowed lowercase absolute schemes
@@ -781,6 +817,12 @@ export function sanitizeURL(
 
 /**
  * Determines whether a URL is relative or uses an allowed non-dangerous scheme.
+ *
+ * @remarks
+ * The predicate half of the URL floor, true exactly when {@link sanitizeURL} keeps a
+ * non-empty value. A relative URL is allowed; a protocol-relative one (`//`, `\\`, `/\`,
+ * `\/`) is not; and `javascript:`, `data:`, `vbscript:`, and `file:` are refused whatever
+ * the allowlist says.
  *
  * @param value - The already entity-decoded URL value
  * @param schemes - The allowed absolute schemes. Default: `SAFE_URL_SCHEMES`
@@ -936,8 +978,9 @@ export function collapseSpace(value: string): string {
  * Serializes an HTML node to canonical, safety-bounded HTML.
  *
  * @remarks
- * Invalid element names unwrap to their children. Raw-text bodies containing their own
- * matching close-tag sequence are dropped. Descent stops after {@link MAX_DEPTH}.
+ * Never throws: it refuses a construct rather than emit an unsafe one. Invalid element
+ * names unwrap to their children. Raw-text bodies containing their own matching close-tag
+ * sequence are dropped. Descent stops after {@link MAX_DEPTH}.
  *
  * @param node - The node or document to serialize
  * @returns Canonical HTML, or `''` if a hostile value prevents serialization
@@ -1087,7 +1130,9 @@ export function renderHTML(node: HTMLNode): string {
  * Block and line-break elements contribute newline boundaries, adjacent table cells use
  * tabs, and adjacent table rows use newlines. Whitespace collapses outside `pre` elements
  * and remains verbatim inside them. Script and style bodies are excluded; title and
- * textarea text remains.
+ * textarea text remains. Heading level, link destination, list marker, nesting depth, image
+ * attributes, code fence, and code language are all lossy: this is the projection that
+ * keeps the reading order and drops the rest.
  *
  * @param node - The node or document to project
  * @returns Structural plain text
@@ -1231,7 +1276,12 @@ export function renderText(node: HTMLNode): string {
 }
 
 /**
- * Walks an HTML node depth-first in pre-order, including the supplied root.
+ * Walks an HTML node depth-first in pre-order, lazily and depth-bounded, including the
+ * supplied root.
+ *
+ * @remarks
+ * THE traversal: `walk`, `find`, `filter`, and `reduce` all iterate this one generator, so
+ * one ordering law covers the whole query surface.
  *
  * @param node - The root node
  * @returns A depth-bounded generator of visited nodes
@@ -1267,7 +1317,8 @@ export function* walkNodes(node: HTMLNode): Generator<HTMLNode> {
 }
 
 /**
- * Folds an HTML node bottom-up through a total handler table.
+ * Folds an HTML node bottom-up through a total handler table - each node's children fold
+ * first, then its own handler runs with those already-folded results.
  *
  * @remarks
  * A node at the depth cap is folded with an empty child result list.
@@ -1562,7 +1613,8 @@ export function extractRegion(
 }
 
 /**
- * Rebuilds a document bottom-up, letting each node become any number of nodes.
+ * Rebuilds a document bottom-up, letting each node become any number of nodes - the
+ * one-to-many spine the sanitize and distill engines share.
  *
  * @remarks
  * The dual of {@link rewriteDocument}: a rewrite maps one node to one node, while a prune

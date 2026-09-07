@@ -52,8 +52,8 @@ import { parseDocument, parseProvenance } from './parsers.js'
  * - **Traversal order.** `walk` and the queries built on it are depth-first, pre-order, and
  *   root-inclusive; `stream` is shallow - the root's direct children only.
  * - **The two engines.** `sanitize` enforces a security floor no option can lower;
- *   `distill` extracts content, sanitizing first because content extraction is not a second
- *   security surface. Both compose the pure leaves in `helpers.ts` over one shared
+ *   `distill` extracts content, sanitizing with the defaults partway through because content
+ *   extraction is not a second security surface. Both compose the pure leaves in `helpers.ts` over one shared
  *   bottom-up spine, {@link pruneDocument}.
  *
  * @example

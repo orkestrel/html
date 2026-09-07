@@ -1,11 +1,20 @@
-/** Lists the code points HTML treats as syntax whitespace. */
+/**
+ * Lists the code points HTML treats as syntax whitespace.
+ *
+ * @remarks
+ * The scanners separate tags on this set alone, so none of them mistakes JavaScript's
+ * broader Unicode whitespace set for tag separation.
+ */
 export const HTML_WHITESPACE = ' \t\n\f\r'
 
 /**
- * Lists the elements that cannot have children - a start tag is the whole element and a close
- * tag for one is discarded. Voidness is looked up here rather than stored on
- * `ElementNode`, so a node can never disagree with its own tag name, and the renderer
- * writes `<br>` (never `<br/>` and never a close tag) for every member.
+ * Lists the elements that cannot have children - a start tag is the whole element, and a
+ * close tag for one is discarded.
+ *
+ * @remarks
+ * Voidness is looked up here rather than stored on `ElementNode`, so a node can never
+ * disagree with its own tag name, and the renderer writes `<br>` (never `<br/>` and never a
+ * close tag) for every member.
  */
 export const VOID_ELEMENTS: readonly string[] = Object.freeze([
 	'area',
@@ -24,25 +33,34 @@ export const VOID_ELEMENTS: readonly string[] = Object.freeze([
 ])
 
 /**
- * Lists the elements whose content is raw text: everything up to the matching close tag - which
- * is recognized case-insensitively - becomes one verbatim `TextNode` with no tag scanning
- * and no character-reference decoding inside. This is the parser's most important safety
- * boundary, so the renderer refuses to write a raw body that itself contains that close
- * tag sequence rather than emit markup that would reopen the element.
+ * Lists the elements whose content is raw text - everything up to the case-insensitive
+ * matching close tag becomes one verbatim text node, with no tag scanning and no
+ * character-reference decoding inside.
+ *
+ * @remarks
+ * This is the parser's most important safety boundary, so the renderer refuses to write a
+ * raw body that itself contains that close tag sequence rather than emit markup that would
+ * reopen the element.
  */
 export const RAW_ELEMENTS: readonly string[] = Object.freeze(['script', 'style'])
 
 /**
- * Lists the elements whose content is literal text - one `TextNode` up to the matching close
- * tag, with character references decoded but no markup parsed. They differ from
- * `RAW_ELEMENTS` only by that decoding: `<title>a &amp; b</title>` holds `a & b`.
+ * Lists the elements whose content is literal text - one text node up to the matching close
+ * tag, with character references decoded but no markup parsed.
+ *
+ * @remarks
+ * They differ from `RAW_ELEMENTS` only by that decoding: `<title>a &amp; b</title>` holds
+ * `a & b`.
  */
 export const LITERAL_ELEMENTS: readonly string[] = Object.freeze(['textarea', 'title'])
 
 /**
- * Lists the elements that carry document structure rather than inline content. They are the
- * elements that implicitly close an open `p` (see `IMPLIED_CLOSERS`) and the boundaries
- * across which the distiller collapses whitespace instead of preserving it.
+ * Lists the elements that carry document structure rather than inline content.
+ *
+ * @remarks
+ * They are the elements that implicitly close an open `p` (see `IMPLIED_CLOSERS`), the
+ * boundaries `renderText` writes a line break at, and the boundaries across which the
+ * distiller collapses whitespace instead of preserving it.
  */
 export const BLOCK_ELEMENTS: readonly string[] = Object.freeze([
 	'address',
@@ -93,18 +111,21 @@ export const BLOCK_ELEMENTS: readonly string[] = Object.freeze([
 ])
 
 /**
- * Holds the implied end-tag table: for each element that can be left open, the start tags whose
- * arrival closes it. An incoming start tag collects one candidate per row that lists it, the
- * innermost open instance of that row's element, so a candidate sitting beneath elements the
- * table never names is still collected. The parser rules each candidate against its own
+ * Holds the implied end-tag table - for each element that can be left open, the start tags
+ * whose arrival closes it.
+ *
+ * @remarks
+ * An incoming start tag collects one candidate per row that lists it, the innermost open
+ * instance of that row's element, so a candidate sitting beneath elements the table never
+ * names is still collected. The parser rules each candidate against its own
  * `IMPLIED_BARRIERS` row, drops one holding a barrier open inside it, and closes out to the
- * shallowest candidate that survives - carrying every element still open inside that one with
- * it. That is how `<p>one<p>two`, `<li>a<li>b`, `<dt>t<dd>d`, and a bare `<tr><td>x<td>y`
- * recover into the structure their author meant, how `<p><b>x<div>y` closes the open `b`
- * element along with the paragraph, and how `<table><tr><td><p><button>x<td>y` still closes
- * the cell after the button barrier rules the paragraph out. An open `p` maps to the whole
- * `BLOCK_ELEMENTS` collection rather than to a second copy of it, so the two can never drift
- * apart.
+ * shallowest candidate that survives - carrying every element still open inside that one
+ * with it. That is how `<p>one<p>two`, `<li>a<li>b`, `<dt>t<dd>d`, and a bare
+ * `<tr><td>x<td>y` recover into the structure their author meant, how `<p><b>x<div>y` closes
+ * the open `b` element along with the paragraph, and how `<table><tr><td><p><button>x<td>y`
+ * still closes the cell after the button barrier rules the paragraph out. An open `p` maps
+ * to the whole `BLOCK_ELEMENTS` collection rather than to a second copy of it, so the two
+ * can never drift apart.
  */
 export const IMPLIED_CLOSERS: Readonly<Record<string, readonly string[]>> = Object.freeze({
 	p: BLOCK_ELEMENTS,
@@ -347,10 +368,12 @@ export const IMPLIED_BARRIERS: Readonly<Record<string, readonly string[]>> = Obj
 
 /**
  * Lists the default element allowlist for `sanitize` - the document vocabulary that survives
- * unchanged. A safe element outside this set is unwrapped to its children rather than
- * dropped, so `HTMLSanitizeOptions.elements` narrows what is KEPT without ever destroying
- * content; `UNSAFE_ELEMENTS` is the separate, unlowerable list of subtrees that are
- * removed whole.
+ * unchanged.
+ *
+ * @remarks
+ * A safe element outside this set is unwrapped to its children rather than dropped, so
+ * `HTMLSanitizeOptions.elements` narrows what is KEPT without ever destroying content;
+ * `UNSAFE_ELEMENTS` is the separate, unlowerable list of subtrees that are removed whole.
  */
 export const SAFE_ELEMENTS: readonly string[] = Object.freeze([
 	'a',
@@ -430,12 +453,15 @@ export const SAFE_ELEMENTS: readonly string[] = Object.freeze([
 ])
 
 /**
- * Lists the default attribute allowlist for `sanitize` - the attributes that describe content
- * rather than fetch, script, or style it. Deliberately narrow: no `id`, no `style`, no
- * event handler, and no resource `src`, so a sanitized `img` keeps its `alt` text and
- * loses its download. `class` is kept because it is inert after `style`, `link`, `svg`, and
- * `script` are gone and it is where a code block declares its language
- * (`class="language-ts"`).
+ * Lists the default attribute allowlist for `sanitize` - the attributes that describe
+ * content rather than fetch, script, or style it.
+ *
+ * @remarks
+ * Deliberately narrow: no `id`, no `style`, no event handler, and no resource `src`, so a
+ * sanitized `img` keeps its `alt` text and loses its download. `class` is kept because it is
+ * inert after `style`, `link`, `svg`, and `script` are gone and it is where a code block
+ * declares its language (`class="language-ts"`). `align` stays subject to the cell-and-value
+ * floor `sanitizeAttributes` applies.
  */
 export const SAFE_ATTRIBUTES: readonly string[] = Object.freeze([
 	'align',
@@ -455,36 +481,46 @@ export const SAFE_ATTRIBUTES: readonly string[] = Object.freeze([
 ])
 
 /**
- * Lists the closed values a sanitized table-cell `align` attribute may carry. This finite
- * vocabulary keeps alignment validation to exact string normalization and membership:
- * the sanitizer deliberately gains no CSS or value-grammar parser and no general styling
- * policy axis.
+ * Lists the closed values a sanitized table-cell `align` attribute may carry.
+ *
+ * @remarks
+ * This finite vocabulary keeps alignment validation to exact string normalization and
+ * membership: the sanitizer deliberately gains no CSS or value-grammar parser and no
+ * general styling policy axis.
  */
 export const TABLE_ALIGNMENTS: readonly string[] = Object.freeze(['center', 'left', 'right'])
 
 /**
- * Lists the elements on which a sanitized `align` attribute is honored. Although `align` is
- * obsolete presentational HTML, its cell-only scope is a smaller security surface than a
- * style declaration allowlist. `sanitizeAttributes` already receives the owning element,
- * so it can narrow this allowlisted attribute the way it narrows URL attributes without a
- * per-element policy mechanism.
+ * Lists the elements on which a sanitized `align` attribute is honored, whatever a caller's
+ * attribute allowlist names.
+ *
+ * @remarks
+ * Although `align` is obsolete presentational HTML, its cell-only scope is a smaller
+ * security surface than a style declaration allowlist. `sanitizeAttributes` already receives
+ * the owning element, so it can narrow this allowlisted attribute the way it narrows URL
+ * attributes without a per-element policy mechanism.
  */
 export const TABLE_CELL_ELEMENTS: readonly string[] = Object.freeze(['td', 'th'])
 
 /**
- * Lists the URL schemes a sanitized document may name. A relative URL - anything without a
- * `scheme:` prefix, excluding the protocol-relative forms - is always allowed; every
- * other scheme is refused. `HTMLSanitizeOptions.schemes` replaces this set but can never
- * admit `javascript:`, `data:`, `vbscript:`, or `file:`, which are refused outright.
+ * Lists the URL schemes a sanitized document may name.
+ *
+ * @remarks
+ * A relative URL - anything without a `scheme:` prefix, excluding the protocol-relative
+ * forms - is always allowed; every other scheme is refused.
+ * `HTMLSanitizeOptions.schemes` replaces this set but can never admit `javascript:`,
+ * `data:`, `vbscript:`, or `file:`, which are refused outright.
  */
 export const SAFE_URL_SCHEMES: readonly string[] = Object.freeze(['http', 'https', 'mailto', 'tel'])
 
 /**
- * Lists the attributes whose value is a URL, and therefore the values `sanitize` decodes,
- * strips of ASCII whitespace and control characters, and scheme-checks before keeping,
- * and that `distill` resolves against `HTMLDistillOptions.base`. `action` and `formaction`
- * are listed even though their elements are removed whole, because a hand-built AST can
- * carry them anywhere.
+ * Lists the attributes whose value is a URL - the values `sanitize` decodes, strips of ASCII
+ * whitespace and control characters, and scheme-checks before keeping, and the values
+ * `distill` resolves against `HTMLDistillOptions.base`.
+ *
+ * @remarks
+ * `action` and `formaction` are listed even though their elements are removed whole, because
+ * a hand-built AST can carry them anywhere.
  */
 export const URL_ATTRIBUTES: readonly string[] = Object.freeze([
 	'action',
@@ -496,12 +532,15 @@ export const URL_ATTRIBUTES: readonly string[] = Object.freeze([
 ])
 
 /**
- * Names the hard floor of `sanitize`: elements whose entire subtree is removed, never unwrapped,
- * no matter what `HTMLSanitizeOptions` allows. Unwrapping is what makes these dangerous -
- * the body of a `script`, `style`, `template`, or `noscript` is text that becomes live
- * markup the moment its wrapper disappears - so the content goes with the element.
- * Foreign content (`svg`, `math`) is here because this AST has no namespaces to police,
- * and the form and metadata elements are here because they act rather than describe.
+ * Names the hard floor of `sanitize` - elements whose entire subtree is removed, never
+ * unwrapped, no matter what `HTMLSanitizeOptions` allows.
+ *
+ * @remarks
+ * Unwrapping is what makes these dangerous - the body of a `script`, `style`, `template`, or
+ * `noscript` is text that becomes live markup the moment its wrapper disappears - so the
+ * content goes with the element. Foreign content (`svg`, `math`) is here because this AST
+ * has no namespaces to police, and the form and metadata elements are here because they act
+ * rather than describe.
  */
 export const UNSAFE_ELEMENTS: readonly string[] = Object.freeze([
 	'applet',
@@ -529,10 +568,13 @@ export const UNSAFE_ELEMENTS: readonly string[] = Object.freeze([
 ])
 
 /**
- * Lists the default element set `distill` keeps as content: prose, headings, lists, tables,
- * code, and the inline marks that carry meaning. Everything else safe is unwrapped to its
- * children, which is how wrapper soup melts while its text survives. Definition lists are
- * included because a documentation page's terms and definitions are content, not chrome.
+ * Lists the default element set `distill` keeps as content - prose, headings, lists, tables,
+ * code, and the inline marks that carry meaning.
+ *
+ * @remarks
+ * Everything else safe is unwrapped to its children, which is how wrapper soup melts while
+ * its text survives. Definition lists are included because a documentation page's terms and
+ * definitions are content, not chrome.
  */
 export const CONTENT_ELEMENTS: readonly string[] = Object.freeze([
 	'a',
@@ -571,9 +613,11 @@ export const CONTENT_ELEMENTS: readonly string[] = Object.freeze([
 
 /**
  * Lists the default regions `distill` removes whole - the navigation, banner, and margin
- * furniture that surrounds an article rather than belonging to it. Unlike the content
- * set, these are dropped with their children: a navigation menu's link text is noise in
- * every reading of the page.
+ * furniture that surrounds an article rather than belonging to it.
+ *
+ * @remarks
+ * Unlike the content set, these are dropped WITH their children: a navigation menu's link
+ * text is noise in every reading of the page.
  */
 export const BOILERPLATE_ELEMENTS: readonly string[] = Object.freeze([
 	'aside',
@@ -591,11 +635,13 @@ export const REGION_ELEMENTS: readonly string[] = Object.freeze(['main', 'articl
 
 /**
  * Holds the semicolon-terminated named character references from the WHATWG HTML set, keyed
- * by name without the leading `&` or trailing `;`. The parser decodes them in text,
- * attribute values, and literal-text elements through a frozen own-property record.
- * Unknown and prototype-like names stay literal.
+ * by name without the leading `&` or trailing `;`.
  *
  * @remarks
+ * The parser decodes them in text, attribute values, and literal-text elements through a
+ * frozen own-property record read with `Object.hasOwn`, so a hostile name such as
+ * `&constructor;` is not an entry and every unknown name stays literal.
+ *
  * Vendored from https://html.spec.whatwg.org/entities.json, fetched 2026-08-24 into
  * `tests/src/core/fixtures/entities.json`, the fixture of record for this table. Legacy
  * no-semicolon aliases are intentionally excluded because the tokenizer requires `;`;
@@ -2731,10 +2777,13 @@ export const NAMED_ENTITIES: Readonly<Record<string, string>> = Object.freeze({
 })
 
 /**
- * Names the recursion depth the parser, the traversals, and the renderers honor before they
- * stop descending - the bound that keeps pathological input (thousands of nested `div`s,
- * a fuzzer's tag soup) from exhausting the call stack. Past this depth the parser appends
- * content to the deepest allowed element instead of nesting further, so parsing stays
- * total and no text is lost.
+ * Names the recursion depth the parser, the guards, the traversals, the renderers, and both
+ * shaping engines honor before they stop descending.
+ *
+ * @remarks
+ * The bound is what keeps pathological input - thousands of nested `div` elements, a
+ * fuzzer's tag soup - from exhausting the call stack. Past this depth the parser appends
+ * content to the deepest allowed element instead of nesting further, so parsing stays total
+ * and no text is lost.
  */
 export const MAX_DEPTH = 64

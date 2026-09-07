@@ -1,8 +1,14 @@
 # @orkestrel/html
 
-A typed HTML AST: parse any page or fragment into readonly nodes, render them back to canonical HTML
-or plain text, sanitize them against a floor no option can lower, and distill a page down to the
-prose a reader — or a language model — actually wants.
+> A types-first HTML toolkit: a hand-written, index-based tokenizer that turns any page or
+> fragment into an immutable `HTML` handle over a typed AST, plus the sanitizer, the distiller,
+> and the standalone renderers that project that AST back out as canonical HTML or structural
+> plain text.
+
+Create a handle with the `createHTML` function, query it with `find` and `filter`, reshape it with
+`map`, `sanitize`, or `distill`, and hand the result to `renderHTML` or `renderText` when a string is
+what you need. Reach for `parseStartTag` where a fail-closed source boundary matters more than
+recovery. Part of the `@orkestrel` line.
 
 - **Total parsing.** Every input produces a document. No parse options, no issue list, no error path:
   malformed markup recovers per a documented table instead of throwing.

@@ -16,12 +16,20 @@ import { HTML } from './HTML.js'
  * @param input - An HTML string to parse, or an already-parsed {@link HTMLDocument}
  * @returns A working {@link HTMLInterface}
  *
- * @example
+ * @example Parse, then query
  * ```ts
- * import { createHTML, renderText } from '@orkestrel/html'
+ * import { createHTML, isElementNode } from '@orkestrel/html'
  *
- * const page = createHTML('<h1>Title</h1><p>Read the <a href="/guide">guide</a>.</p>')
- * renderText(page.document) // 'Title\nRead the guide.'
+ * const page = createHTML('<h1>Title</h1><p>A <b>bold</b> word.</p>')
+ *
+ * page.document.children[0] // { category: 'element', name: 'h1', attributes: [], children: [...] }
+ * page.span(page.document) // { start: 0, end: 40 } - half-open offsets in the original input
+ * page.find(isElementNode)?.name // 'h1' - narrowed to ElementNode by the guard overload
+ * page.filter(isElementNode).map((element) => element.name) // ['h1', 'p', 'b']
+ *
+ * const categories: string[] = []
+ * for (const node of page.walk()) categories.push(node.category)
+ * // ['document', 'element', 'text', 'element', 'text', 'element', 'text', 'text']
  * ```
  */
 export function createHTML(input: string | HTMLDocument): HTMLInterface {
