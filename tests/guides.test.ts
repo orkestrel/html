@@ -1,6 +1,6 @@
 // The consumer-side guides-parity drop-in: runs `@orkestrel/guide`'s checks against
-// this repo's own `guides/README.md` manifest. The constants below are this
-// package's own, and are the only part a sibling package changes.
+// this repo's own `guides/README.md` manifest. The constants that follow are this
+// package's own, as is the executed section that closes the file.
 
 import type { HTMLHandlerMap, HTMLNode } from '@src/core'
 import { describe, expect, it } from 'vitest'

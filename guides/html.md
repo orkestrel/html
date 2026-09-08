@@ -13,7 +13,7 @@ That totality statement governs document parsing. `parseStartTag` is the separat
 
 ### Types
 
-The full node shape and handle contract, from [`types.ts`](../src/core/types.ts). `category` is the discriminant every node carries; absence is always `undefined`, never a sentinel. A `Shape` cell holds an interface's data members as bare names in braces, `?` marking an optional member, and its call-signature members after `plus`; a type alias's cell holds the alias's own type literal, a union's arms escaped as `\|`. A member's type never appears in a cell, because the declaration carries it and the row's name reaches it. A generic declaration carries its parameter binding beside its literal, so a `TNode` or a `T` in a cell is that declaration's own parameter. The node categories are worked through in § [The AST model](#the-ast-model), and the option interfaces in § [The sanitize floor](#the-sanitize-floor) and § [The distill pass](#the-distill-pass).
+The full node shape and handle contract, from [`types.ts`](../src/core/types.ts). `category` is the discriminant every node carries; absence is always `undefined`, never a sentinel. A `Shape` cell holds an interface's data members as bare names in braces, `?` marking an optional member and `plus` introducing its call-signature members, and a type alias's own type literal with a union's arms escaped as `\|`. A member's type never appears in a cell, because the declaration carries it and the row's name reaches it. A generic declaration carries its parameter binding beside its literal, so a `TNode` or a `T` in a cell is that declaration's own parameter. The node categories are worked through in § [The AST model](#the-ast-model), and the option interfaces in § [The sanitize floor](#the-sanitize-floor) and § [The distill pass](#the-distill-pass).
 
 | Name                  | Kind      | Shape                                                                                                  | Summary                                                                                                                                                                                                                     |
 | --------------------- | --------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -39,33 +39,33 @@ The full node shape and handle contract, from [`types.ts`](../src/core/types.ts)
 | `HTMLPruneHandler`    | type      | `(node: HTMLNode) => readonly HTMLNode[]`                                                              | Represents a bottom-up pruning handler applied by `pruneDocument` - receives one node whose children have already been pruned and returns the nodes that replace it.                                                        |
 | `HTMLSanitizeOptions` | interface | `{ elements?, attributes?, schemes?, comments? }`                                                      | Describes the options for `HTMLInterface.sanitize`. Each allowlist key replaces its default rather than extending it, so a caller who passes one narrows or redirects that one axis and leaves the others alone.            |
 | `HTMLDistillOptions`  | interface | `{ base?, elements?, boilerplate? }`                                                                   | Describes the options for `HTMLInterface.distill` - the content-extraction pass that reduces a page to the prose a reader (or a language model) actually wants.                                                             |
-| `HTMLInterface`       | interface | `{ document } plus { span, walk, find, filter, map, reduce, fold, stream, sanitize, distill }`         | Represents a parsed HTML document: the typed `HTMLDocument` AST plus the query (`walk` / `find` / `filter` / `reduce`), rewrite (`map`), fold, streaming, and document-shaping (`sanitize` / `distill`) operations over it. |
+| `HTMLInterface`       | interface | `{ document } plus span, walk, find, filter, map, reduce, fold, stream, sanitize, distill`             | Represents a parsed HTML document: the typed `HTMLDocument` AST plus the query (`walk` / `find` / `filter` / `reduce`), rewrite (`map`), fold, streaming, and document-shaping (`sanitize` / `distill`) operations over it. |
 
 ### Constants
 
-The element vocabularies, allowlists, entity table, and depth bound every engine reads, from [`constants.ts`](../src/core/constants.ts). Every collection is a frozen array, or — for the keyed tables — a frozen record read through `Object.hasOwn`, so nothing a consumer can reach changes what an engine sees (§ [The sanitize floor](#the-sanitize-floor)). A `Value` cell holds the constant's own value where it is short enough to read, and its type where the collection is too long for a table. The depth bound's degrade behavior is § [Depth degrade semantics](#depth-degrade-semantics).
+The element vocabularies, allowlists, entity table, and depth bound every engine reads, from [`constants.ts`](../src/core/constants.ts). Every collection is a frozen array, or — for the keyed tables — a frozen record read through `Object.hasOwn`, so nothing a consumer can reach changes what an engine sees (§ [The sanitize floor](#the-sanitize-floor)). A `Shape` cell holds the constant's declared type. The depth bound's degrade behavior is § [Depth degrade semantics](#depth-degrade-semantics).
 
-| Name                   | Kind  | Value                                                                                                                         | Summary                                                                                                                                                                                                                              |
-| ---------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `HTML_WHITESPACE`      | const | `' \t\n\f\r'`                                                                                                                 | Lists the code points HTML treats as syntax whitespace.                                                                                                                                                                              |
-| `VOID_ELEMENTS`        | const | `['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']`                      | Lists the elements that cannot have children - a start tag is the whole element, and a close tag for one is discarded.                                                                                                               |
-| `RAW_ELEMENTS`         | const | `['script', 'style']`                                                                                                         | Lists the elements whose content is raw text - everything up to the case-insensitive matching close tag becomes one verbatim text node, with no tag scanning and no character-reference decoding inside.                             |
-| `LITERAL_ELEMENTS`     | const | `['textarea', 'title']`                                                                                                       | Lists the elements whose content is literal text - one text node up to the matching close tag, with character references decoded but no markup parsed.                                                                               |
-| `BLOCK_ELEMENTS`       | const | `readonly string[]`                                                                                                           | Lists the elements that carry document structure rather than inline content.                                                                                                                                                         |
-| `IMPLIED_CLOSERS`      | const | `Readonly<Record<string, readonly string[]>>`                                                                                 | Holds the implied end-tag table - for each element that can be left open, the start tags whose arrival closes it.                                                                                                                    |
-| `IMPLIED_BARRIERS`     | const | `Readonly<Record<string, readonly string[]>>`                                                                                 | Bounds each implied-close search at containers that protect matching ancestors.                                                                                                                                                      |
-| `SAFE_ELEMENTS`        | const | `readonly string[]`                                                                                                           | Lists the default element allowlist for `sanitize` - the document vocabulary that survives unchanged.                                                                                                                                |
-| `SAFE_ATTRIBUTES`      | const | `['align', 'alt', 'cite', 'class', 'colspan', 'dir', 'height', 'href', 'lang', 'rowspan', 'span', 'start', 'title', 'width']` | Lists the default attribute allowlist for `sanitize` - the attributes that describe content rather than fetch, script, or style it.                                                                                                  |
-| `TABLE_ALIGNMENTS`     | const | `['center', 'left', 'right']`                                                                                                 | Lists the closed values a sanitized table-cell `align` attribute may carry.                                                                                                                                                          |
-| `TABLE_CELL_ELEMENTS`  | const | `['td', 'th']`                                                                                                                | Lists the elements on which a sanitized `align` attribute is honored, whatever a caller's attribute allowlist names.                                                                                                                 |
-| `SAFE_URL_SCHEMES`     | const | `['http', 'https', 'mailto', 'tel']`                                                                                          | Lists the URL schemes a sanitized document may name.                                                                                                                                                                                 |
-| `URL_ATTRIBUTES`       | const | `['action', 'cite', 'formaction', 'href', 'poster', 'src']`                                                                   | Lists the attributes whose value is a URL - the values `sanitize` decodes, strips of ASCII whitespace and control characters, and scheme-checks before keeping, and the values `distill` resolves against `HTMLDistillOptions.base`. |
-| `UNSAFE_ELEMENTS`      | const | `readonly string[]`                                                                                                           | Names the hard floor of `sanitize` - elements whose entire subtree is removed, never unwrapped, no matter what `HTMLSanitizeOptions` allows.                                                                                         |
-| `CONTENT_ELEMENTS`     | const | `readonly string[]`                                                                                                           | Lists the default element set `distill` keeps as content - prose, headings, lists, tables, code, and the inline marks that carry meaning.                                                                                            |
-| `BOILERPLATE_ELEMENTS` | const | `['aside', 'footer', 'header', 'menu', 'nav']`                                                                                | Lists the default regions `distill` removes whole - the navigation, banner, and margin furniture that surrounds an article rather than belonging to it.                                                                              |
-| `REGION_ELEMENTS`      | const | `['main', 'article']`                                                                                                         | Lists the content regions `distill` tries in priority order when re-rooting a document. A region qualifies only when it occurs exactly once.                                                                                         |
-| `NAMED_ENTITIES`       | const | `Readonly<Record<string, string>>`                                                                                            | Holds the semicolon-terminated named character references from the WHATWG HTML set, keyed by name without the leading `&` or trailing `;`.                                                                                           |
-| `MAX_DEPTH`            | const | `64`                                                                                                                          | Names the recursion depth the parser, the guards, the traversals, the renderers, and the sanitize and distill engines honor before they stop descending.                                                                             |
+| Name                   | Kind  | Shape                                         | Summary                                                                                                                                                                                                                              |
+| ---------------------- | ----- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `HTML_WHITESPACE`      | const | `string`                                      | Lists the code points HTML treats as syntax whitespace, `' \t\n\f\r'`.                                                                                                                                                               |
+| `VOID_ELEMENTS`        | const | `readonly string[]`                           | Lists the elements that cannot have children - a start tag is the whole element, and a close tag for one is discarded.                                                                                                               |
+| `RAW_ELEMENTS`         | const | `readonly string[]`                           | Lists the elements whose content is raw text - everything up to the case-insensitive matching close tag becomes one verbatim text node, with no tag scanning and no character-reference decoding inside.                             |
+| `LITERAL_ELEMENTS`     | const | `readonly string[]`                           | Lists the elements whose content is literal text - one text node up to the matching close tag, with character references decoded but no markup parsed.                                                                               |
+| `BLOCK_ELEMENTS`       | const | `readonly string[]`                           | Lists the elements that carry document structure rather than inline content.                                                                                                                                                         |
+| `IMPLIED_CLOSERS`      | const | `Readonly<Record<string, readonly string[]>>` | Holds the implied end-tag table - for each element that can be left open, the start tags whose arrival closes it.                                                                                                                    |
+| `IMPLIED_BARRIERS`     | const | `Readonly<Record<string, readonly string[]>>` | Bounds each implied-close search at containers that protect matching ancestors.                                                                                                                                                      |
+| `SAFE_ELEMENTS`        | const | `readonly string[]`                           | Lists the default element allowlist for `sanitize` - the document vocabulary that survives unchanged.                                                                                                                                |
+| `SAFE_ATTRIBUTES`      | const | `readonly string[]`                           | Lists the default attribute allowlist for `sanitize` - the attributes that describe content rather than fetch, script, or style it.                                                                                                  |
+| `TABLE_ALIGNMENTS`     | const | `readonly string[]`                           | Lists the closed values a sanitized table-cell `align` attribute may carry.                                                                                                                                                          |
+| `TABLE_CELL_ELEMENTS`  | const | `readonly string[]`                           | Lists the elements on which a sanitized `align` attribute is honored, whatever a caller's attribute allowlist names.                                                                                                                 |
+| `SAFE_URL_SCHEMES`     | const | `readonly string[]`                           | Lists the URL schemes a sanitized document may name.                                                                                                                                                                                 |
+| `URL_ATTRIBUTES`       | const | `readonly string[]`                           | Lists the attributes whose value is a URL - the values `sanitize` decodes, strips of ASCII whitespace and control characters, and scheme-checks before keeping, and the values `distill` resolves against `HTMLDistillOptions.base`. |
+| `UNSAFE_ELEMENTS`      | const | `readonly string[]`                           | Names the hard floor of `sanitize` - elements whose entire subtree is removed, never unwrapped, no matter what `HTMLSanitizeOptions` allows.                                                                                         |
+| `CONTENT_ELEMENTS`     | const | `readonly string[]`                           | Lists the default element set `distill` keeps as content - prose, headings, lists, tables, code, and the inline marks that carry meaning.                                                                                            |
+| `BOILERPLATE_ELEMENTS` | const | `readonly string[]`                           | Lists the default regions `distill` removes whole - the navigation, banner, and margin furniture that surrounds an article rather than belonging to it.                                                                              |
+| `REGION_ELEMENTS`      | const | `readonly string[]`                           | Lists the content regions `distill` tries in priority order when re-rooting a document. A region qualifies only when it occurs exactly once.                                                                                         |
+| `NAMED_ENTITIES`       | const | `Readonly<Record<string, string>>`            | Holds the semicolon-terminated named character references from the WHATWG HTML set, keyed by name without the leading `&` or trailing `;`.                                                                                           |
+| `MAX_DEPTH`            | const | `number`                                      | Names the recursion depth the parser, the guards, the traversals, the renderers, and the sanitize and distill engines honor before they stop descending, `64`.                                                                       |
 
 ### Validators
 
@@ -137,12 +137,14 @@ Pure leaves from [`helpers.ts`](../src/core/helpers.ts) — the lexical scanners
 
 Declarative `ContractShape` values (from `@orkestrel/contract`) in [`shapers.ts`](../src/core/shapers.ts) — `createContract` compiles one shape into a JSON Schema, a guard, a coercing parser, and a seeded generator that can never drift apart. A shape tree has no lazy or self-referential node, so only the leaves of this AST shape here; `ElementNode` and `HTMLDocument` recurse into `HTMLNode` and therefore stay hand-written, cycle- and depth-capped guards in `validators.ts`.
 
-| Name             | Kind  | Summary                                                                                                                                                                                                                  |
-| ---------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `attributeShape` | const | Describes the shape of an `HTMLAttribute` - an element attribute's name and, when the source wrote one, its value. `value` is optional: its absence is what distinguishes `<input disabled>` from `<input disabled="">`. |
-| `textShape`      | const | Describes the shape of a `TextNode` - the decoded character-data leaf.                                                                                                                                                   |
-| `commentShape`   | const | Describes the shape of a `CommentNode` - the verbatim, never-decoded comment leaf a bogus comment also recovers to.                                                                                                      |
-| `doctypeShape`   | const | Describes the shape of a `DoctypeNode` - the declared root name plus the optional public and system identifiers of a legacy declaration.                                                                                 |
+A `Shape` cell holds the constant's declared type.
+
+| Name             | Kind  | Shape           | Summary                                                                                                                                                                                                                  |
+| ---------------- | ----- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `attributeShape` | const | `ContractShape` | Describes the shape of an `HTMLAttribute` - an element attribute's name and, when the source wrote one, its value. `value` is optional: its absence is what distinguishes `<input disabled>` from `<input disabled="">`. |
+| `textShape`      | const | `ContractShape` | Describes the shape of a `TextNode` - the decoded character-data leaf.                                                                                                                                                   |
+| `commentShape`   | const | `ContractShape` | Describes the shape of a `CommentNode` - the verbatim, never-decoded comment leaf a bogus comment also recovers to.                                                                                                      |
+| `doctypeShape`   | const | `ContractShape` | Describes the shape of a `DoctypeNode` - the declared root name plus the optional public and system identifiers of a legacy declaration.                                                                                 |
 
 ### Factories
 
@@ -351,6 +353,8 @@ Every feature that follows has a compact, runnable example. Together they cover 
 
 ### Parse, then query
 
+Parses a page, then queries it by guard, walk order, and span:
+
 ```ts
 import { createHTML, isElementNode } from '@orkestrel/html'
 
@@ -368,6 +372,8 @@ for (const node of page.walk()) categories.push(node.category)
 
 ### Adopt a document that came from somewhere else
 
+Adopts a foreign document through the total guard and refuses a bogus one:
+
 ```ts
 import { HTML, isHTMLDocument, isHTMLNode } from '@orkestrel/html'
 
@@ -382,6 +388,8 @@ isHTMLNode({ category: 'text', value: 'a & b' }) // true - one leaf, validated f
 ```
 
 ### Rewrite with `map`, count with `reduce`, project with `fold`
+
+Rewrites with `map`, counts with `reduce`, and projects with `fold`:
 
 ```ts
 import { createHTML, isTextNode, renderHTML } from '@orkestrel/html'
@@ -409,6 +417,8 @@ page.fold(elements) // 3
 
 ### Stream the top level, shallow and backpressured
 
+Streams the root's direct children through a reader and an async iteration:
+
 ```ts
 import { createHTML } from '@orkestrel/html'
 
@@ -425,6 +435,8 @@ for await (const node of page.stream()) node.category
 ```
 
 ### Sanitize, and watch the floor hold
+
+Sanitizes to the floor whatever the element and attribute allowlists say:
 
 ```ts
 import { createHTML, renderHTML, SAFE_ELEMENTS } from '@orkestrel/html'
@@ -468,6 +480,8 @@ renderHTML(
 
 ### Distill a page down to its content
 
+Distills a page to its content and keeps the handle a projection choice:
+
 ```ts
 import { createHTML, renderHTML, renderText } from '@orkestrel/html'
 
@@ -497,6 +511,8 @@ narrow.document.category // 'document' - always a handle, never a string
 ```
 
 ### Work on a bare node, with no handle at all
+
+Drives the standalone leaves on a bare node with no handle at all:
 
 ```ts
 import {
@@ -549,6 +565,8 @@ collapseText([{ category: 'text', value: ' a \n b ' }])[0]
 
 ### Scan by hand, one piece at a time
 
+Scans one construct at a time and reports each exact end offset:
+
 ```ts
 import {
 	decodeEntities,
@@ -593,6 +611,8 @@ isHTMLCodePoint(0xd800) // false - surrogate
 
 ### Escape, resolve, and inspect
 
+Escapes, resolves, and inspects one attribute at a time:
+
 ```ts
 import {
 	attributeOf,
@@ -627,6 +647,8 @@ if (anchor?.category === 'element') {
 
 ### Ask a name or an element a question
 
+Answers a name predicate, a URL predicate, and an emptiness predicate:
+
 ```ts
 import {
 	isBlockElement,
@@ -652,6 +674,8 @@ if (image?.category === 'element') isEmptyElement(image) // true
 ```
 
 ### Prove the roundtrip laws
+
+Holds the AST fixpoint, canonical idempotence, and sanitize fixpoint laws:
 
 ```ts
 import { createHTML, parseDocument, renderHTML } from '@orkestrel/html'

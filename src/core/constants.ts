@@ -1,5 +1,5 @@
 /**
- * Lists the code points HTML treats as syntax whitespace.
+ * Lists the code points HTML treats as syntax whitespace, `' \t\n\f\r'`.
  *
  * @remarks
  * The scanners separate tags on this set alone, so none of them mistakes JavaScript's
@@ -2778,7 +2778,7 @@ export const NAMED_ENTITIES: Readonly<Record<string, string>> = Object.freeze({
 
 /**
  * Names the recursion depth the parser, the guards, the traversals, the renderers, and the
- * sanitize and distill engines honor before they stop descending.
+ * sanitize and distill engines honor before they stop descending, `64`.
  *
  * @remarks
  * The bound is what keeps pathological input - thousands of nested `div` elements, a
