@@ -18,7 +18,7 @@ import type {
 	HTMLTag,
 	TextNode,
 } from './types.js'
-import { attempt } from '@orkestrel/contract'
+import { attempt, isFiniteNumber, isFunction, isInteger } from '@orkestrel/contract'
 import {
 	BLOCK_ELEMENTS,
 	HTML_WHITESPACE,
@@ -249,7 +249,7 @@ export function decodeEntities(value: string): string {
 			if (index > digits && value[index] === ';') {
 				const scalar = Number.parseInt(value.slice(digits, index), radix)
 				decoded +=
-					Number.isFinite(scalar) &&
+					isFiniteNumber(scalar) &&
 					scalar > 0 &&
 					scalar <= 0x10ffff &&
 					!(scalar >= 0xd800 && scalar <= 0xdfff)
@@ -361,7 +361,7 @@ export function scanAttributes(source: string): readonly HTMLAttribute[] {
  * @returns The start tag and exact next offset, or `undefined` for malformed or incomplete source
  */
 export function parseStartTag(html: string, offset: number): HTMLStartTag | undefined {
-	if (!Number.isInteger(offset) || offset < 0 || html[offset] !== '<') return undefined
+	if (!isInteger(offset) || offset < 0 || html[offset] !== '<') return undefined
 	let index = offset + 1
 	if (!/[A-Za-z]/.test(html[index] ?? '')) return undefined
 	const nameStart = index
@@ -798,10 +798,9 @@ export function sanitizeURL(
 		if (match === null) return cleaned
 		const scheme = (match[1] ?? '').toLowerCase()
 		const has = Reflect.get(schemes, 'has')
-		const allowed =
-			typeof has === 'function'
-				? Reflect.apply(has, schemes, [scheme]) === true
-				: Reflect.apply(Array.prototype.includes, schemes, [scheme]) === true
+		const allowed = isFunction(has)
+			? Reflect.apply(has, schemes, [scheme]) === true
+			: Reflect.apply(Array.prototype.includes, schemes, [scheme]) === true
 		if (
 			scheme === 'javascript' ||
 			scheme === 'data' ||
@@ -908,7 +907,7 @@ export function sanitizeAttributes(
 				name === 'style' ||
 				name === 'srcdoc' ||
 				name === 'xmlns' ||
-				!(typeof has === 'function'
+				!(isFunction(has)
 					? Reflect.apply(has, attributes, [name]) === true
 					: Reflect.apply(Array.prototype.includes, attributes, [name]) === true)
 			) {

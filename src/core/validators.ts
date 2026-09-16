@@ -13,6 +13,7 @@ import {
 	holds,
 	isArray,
 	isInteger,
+	isObject,
 	isRecord,
 	isString,
 	literalOf,
@@ -119,7 +120,7 @@ export function isHTMLNode(value: unknown): value is HTMLNode {
 			const entry = pending.pop()
 			if (entry === undefined) continue
 			if (entry.leaving) {
-				if (typeof entry.value === 'object' && entry.value !== null) {
+				if (isObject(entry.value)) {
 					ancestors.delete(entry.value)
 				}
 				continue

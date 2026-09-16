@@ -10,7 +10,7 @@ import type {
 	HTMLSanitizeOptions,
 	HTMLSpan,
 } from './types.js'
-import { attempt } from '@orkestrel/contract'
+import { attempt, isString } from '@orkestrel/contract'
 import {
 	BOILERPLATE_ELEMENTS,
 	CONTENT_ELEMENTS,
@@ -72,7 +72,7 @@ export class HTML implements HTMLInterface {
 	readonly #spans: Map<HTMLNode, HTMLSpan>
 
 	constructor(input: string | HTMLDocument) {
-		if (typeof input === 'string') {
+		if (isString(input)) {
 			const [document, spans] = parseProvenance(input)
 			this.#document = document
 			this.#spans = new Map(spans)
