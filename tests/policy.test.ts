@@ -13,6 +13,7 @@ import {
 	inspectPolicyControl,
 	inspectPolicyFilenamePaths,
 	inspectPolicyMirrorPaths,
+	inspectPolicyMirrors,
 	inspectPolicyPortability,
 	inspectPolicyWiring,
 	inspectPolicyWorkspace,
@@ -87,10 +88,23 @@ describe('surface policy controls', () => {
 		}
 	})
 
-	it('refuses a target catalog row absent from the installed guides', () => {
+	it('ignores a target catalog row the installed scaffold does not stage', () => {
 		const scratch = createPolicySurfaceFixture()
 		try {
 			scratch.write(POLICY_CATALOG_FILE, createPolicyCatalog(['other', 'sample', 'uncovered']))
+			expect(inspectPolicyWorkspace(scratch.path)).toEqual([])
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('refuses a staged catalog row absent from the installed guides', () => {
+		const scratch = createPolicySurfaceFixture()
+		try {
+			scratch.write(
+				`${POLICY_SURFACE_HOST}/${POLICY_SURFACE_CATALOG}`,
+				createPolicyCatalog(['other', 'sample', 'uncovered']),
+			)
 			expect(inspectPolicyWorkspace(scratch.path)).toEqual([
 				{
 					rule: 'surface',
@@ -206,6 +220,31 @@ describe('surface policy controls', () => {
 			])
 			rmSync(join(scratch.path, 'tests/setupServer.ts'), { recursive: true, force: true })
 			expect(inspectPolicyWorkspace(scratch.path)).toEqual([])
+		} finally {
+			scratch.destroy()
+		}
+	})
+
+	it('excludes the distribution harness in an adopter while reporting target-owned collisions', () => {
+		const scratch = createPolicySurfaceFixture()
+		try {
+			scratch.write('tests/setupDistribution.ts', 'export function readShared() {}\n')
+			expect(inspectPolicyWorkspace(scratch.path)).toEqual([])
+			scratch.write('tests/setupExtra.ts', 'export function readShared() {}\n')
+			expect(inspectPolicyWorkspace(scratch.path)).toEqual([
+				{
+					rule: 'mirror',
+					path: 'tests/setupExtra.ts',
+					message:
+						'exporting setup module requires its sibling proof or an import from tests/setup.test.ts',
+				},
+				{
+					rule: 'surface',
+					path: 'tests/setupExtra.ts',
+					line: 1,
+					message: 'surface name belongs to one package: readShared (other)',
+				},
+			])
 		} finally {
 			scratch.destroy()
 		}
@@ -361,6 +400,24 @@ describe('fleet policy register', () => {
 		]
 		const modules = new Set(['src/worker/Worker.ts', 'app/browser/routes.ts'])
 		expect(inspectPolicyMirrorPaths(tests, modules)).toEqual([])
+	})
+
+	// A study test names a package-level subject, so it sits beside no module it mirrors. The mirrored
+	// population is `tests/{app,src}`, and the root `studies` directory holds adapters outside it.
+	it('leaves study tests and the root studies directory outside the mirrored population', () => {
+		const scratch = createPolicyScratch({ prefix: 'orkestrel-policy-studies-' })
+		try {
+			scratch.write('studies/adapter.ts', 'export {}\n')
+			scratch.write('tests/studies/adapter.test.ts', '')
+			expect(inspectPolicyMirrors(scratch.path)).toEqual([])
+			// The control: a mirrored test with no module reports through the same sweep.
+			scratch.write('tests/src/worker/Worker.test.ts', '')
+			expect(inspectPolicyMirrors(scratch.path).map((violation) => violation.path)).toEqual([
+				'tests/src/worker/Worker.test.ts',
+			])
+		} finally {
+			scratch.destroy()
+		}
 	})
 
 	it('derives mirror candidates in module resolution order', () => {
