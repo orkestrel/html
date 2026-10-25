@@ -79,7 +79,7 @@
 		"@microsoft/api-extractor": "^7.59.4",
 		"@orkestrel/guide": "^0.0.25",
 		"@orkestrel/probe": "^0.0.24",
-		"@orkestrel/scaffold": "^0.0.104",
+		"@orkestrel/scaffold": "^0.0.107",
 		"@orkestrel/test": "^0.0.29",
 		"@types/node": "^26.6.5",
 		"oxfmt": "^0.74.0",
