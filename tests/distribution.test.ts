@@ -15,7 +15,6 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
-	statSync,
 	writeFileSync,
 } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -23,20 +22,24 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
+import {
+	matchesDistributionPackageTarget,
+	readDistributionPackageType,
+	runDistributionNpm,
+	targetToDistributionDeclaration,
+} from './setupDistribution.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 // The compiler this workspace installs, run as a command rather than called in
 // process: the command and its plain-text diagnostics are the same across the
 // compiler majors this toolchain supports, and its in-process API is not. It is
 // resolved from the workspace under proof, so a consumer of the packed artifact is
 // checked by the same compiler that workspace's own `check` script runs.
-const TSC = createRequire(join(ROOT, 'package.json')).resolve('typescript/bin/tsc')
-// Windows needs a shell to launch a `.cmd`: Node refuses one directly since the
-// batch-argument hardening, and `spawnSync` returns `EINVAL` with a null status
-// rather than an exit code a caller can read. Every following argument is a literal or
-// a path this file built, so the shell has nothing to escape.
-const SHELL = process.platform === 'win32'
+const TSC = join(
+	dirname(createRequire(join(ROOT, 'package.json')).resolve('typescript/package.json')),
+	'bin',
+	'tsc',
+)
 // `prepublishOnly` runs this proof as `npm run test:distribution -- --mode release`.
 // Release is the publish gate, so evidence it cannot obtain fails there and skips
 // everywhere else: a gate that passes on missing evidence proves nothing.
@@ -69,10 +72,6 @@ process.stdout.write(JSON.stringify(Object.keys(entry).sort()))
 // through its addon handler instead, so that extension is named separately.
 const MODULE_EXTENSIONS = ['.js', '.mjs', '.cjs']
 const ADDON_EXTENSION = '.node'
-// The extensions a declaration file carries. A `require` condition declares
-// `.d.cts` and an ESM-only one `.d.mts`, so the `.d.ts` spelling alone does not
-// name them.
-const DECLARATION_EXTENSIONS = ['.d.ts', '.d.cts', '.d.mts']
 type Format = 'module' | 'commonjs'
 
 // The Node import target is resolved with the conditions that driver supplies. The
@@ -186,23 +185,6 @@ function isNames(value: unknown): value is readonly string[] {
 	return isArray(value) && value.every((name) => isString(name))
 }
 
-// Whether a string is a valid package target. Node rejects a target outside the
-// package and a target containing a dot, parent, or node_modules segment during
-// package-target resolution. A later module-resolution failure is not the same
-// thing: an array falls through the former and keeps the latter.
-function isPackageTarget(target: string): boolean {
-	if (!target.startsWith('./')) return false
-	for (const segment of target.slice(2).split(/[\\/]/u)) {
-		let decoded = segment
-		try {
-			decoded = decodeURIComponent(segment)
-		} catch {}
-		const normalized = decoded.toLowerCase()
-		if (normalized === '.' || normalized === '..' || normalized === 'node_modules') return false
-	}
-	return true
-}
-
 function readJson(path: string): unknown {
 	const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
 	return parsed
@@ -225,16 +207,6 @@ function readOutput(result: SpawnSyncReturns<string>): string {
 	return `${result.stdout ?? ''}${result.stderr ?? ''}`.trim()
 }
 
-function runNpm(args: readonly string[], cwd: string): SpawnSyncReturns<string> {
-	return spawnSync(NPM, [...args], {
-		cwd,
-		encoding: 'utf8',
-		env: { ...process.env, npm_config_cache: CACHE },
-		shell: SHELL,
-		windowsHide: true,
-	})
-}
-
 function runNode(args: readonly string[], cwd: string): SpawnSyncReturns<string> {
 	return spawnSync(process.execPath, [...args], { cwd, encoding: 'utf8', windowsHide: true })
 }
@@ -248,7 +220,9 @@ function resolvePackageTarget(
 	if (isArray(entry)) {
 		for (const member of entry) {
 			const resolved = resolvePackageTarget(member, conditions)
-			if (resolved !== undefined && isPackageTarget(resolved.target)) return resolved
+			if (resolved !== undefined && matchesDistributionPackageTarget(resolved.target)) {
+				return resolved
+			}
 		}
 		return undefined
 	}
@@ -269,29 +243,6 @@ function resolveTarget(entry: unknown, conditions: readonly string[]): string | 
 	return resolvePackageTarget(entry, conditions)?.target
 }
 
-// Whether a path is a physical file. TypeScript's file-existence check refuses a
-// directory at the same spelling and continues to the outer package scope.
-function matchesFile(path: string): boolean {
-	try {
-		return statSync(path).isFile()
-	} catch {
-		return false
-	}
-}
-
-// TypeScript resolves a declaration target by accepting an existing declaration
-// directly or by substituting beside a JavaScript target. A missing target leaves
-// the containing condition or fallback list unresolved, so the walk continues.
-function targetToDeclaration(target: string, installed: string): string | undefined {
-	if (!isPackageTarget(target)) return undefined
-	let declaration = target
-	if (target.endsWith('.cjs')) declaration = `${target.slice(0, -4)}.d.cts`
-	else if (target.endsWith('.mjs')) declaration = `${target.slice(0, -4)}.d.mts`
-	else if (target.endsWith('.js')) declaration = `${target.slice(0, -3)}.d.ts`
-	else if (!isDeclaration(target)) return undefined
-	return matchesFile(join(installed, declaration)) ? declaration : undefined
-}
-
 // The declaration TypeScript resolves through one importing format's conditions.
 // Condition objects keep manifest order, and arrays keep fallback order.
 function resolveDeclaration(
@@ -299,7 +250,7 @@ function resolveDeclaration(
 	conditions: readonly string[],
 	installed: string,
 ): string | undefined {
-	if (typeof entry === 'string') return targetToDeclaration(entry, installed)
+	if (typeof entry === 'string') return targetToDistributionDeclaration(entry, installed)
 	if (isArray(entry)) {
 		for (const member of entry) {
 			const resolved = resolveDeclaration(member, conditions, installed)
@@ -314,28 +265,6 @@ function resolveDeclaration(
 		if (resolved !== undefined) return resolved
 	}
 	return undefined
-}
-
-// The nearest package scope that decides a `.d.ts` declaration's module format. A
-// physical nested manifest starts a scope even when it omits `type` or cannot be
-// parsed. A directory at that spelling is not a manifest, so the walk continues.
-function readPackageType(installed: string, target: string): unknown {
-	let directory = dirname(join(installed, target))
-	while (true) {
-		const path = join(directory, 'package.json')
-		if (matchesFile(path)) {
-			try {
-				const manifest = readJson(path)
-				return isRecord(manifest) ? manifest.type : undefined
-			} catch {
-				return undefined
-			}
-		}
-		if (directory === installed) return undefined
-		const parent = dirname(directory)
-		if (parent === directory) return undefined
-		directory = parent
-	}
 }
 
 function resolvesBrowser(entry: unknown): boolean {
@@ -358,7 +287,7 @@ function resolvesCommonJS(entry: unknown, installed: string): boolean {
 	if (name.endsWith('.mjs')) return false
 	if (name.endsWith('.node')) return true
 	if (!name.includes('.')) return true
-	return name.endsWith('.js') && readPackageType(installed, target) !== 'module'
+	return name.endsWith('.js') && readDistributionPackageType(installed, target) !== 'module'
 }
 
 // Whether the declaration selected by a typed CommonJS consumer admits that entry.
@@ -369,14 +298,17 @@ function declaresCommonJS(entry: unknown, installed: string): boolean {
 	if (declaration === undefined) return false
 	if (declaration.endsWith('.d.cts')) return true
 	if (declaration.endsWith('.d.mts')) return false
-	return declaration.endsWith('.d.ts') && readPackageType(installed, declaration) !== 'module'
+	return (
+		declaration.endsWith('.d.ts') &&
+		readDistributionPackageType(installed, declaration) !== 'module'
+	)
 }
 
 // Every target an entry names under any condition. A fallback list omits members
 // Node rejects during package-target validation, because no reader can take them.
 function collectTargets(entry: unknown): readonly string[] {
 	if (typeof entry === 'string') return [entry]
-	if (isArray(entry)) return entry.flatMap(collectTargets).filter(isPackageTarget)
+	if (isArray(entry)) return entry.flatMap(collectTargets).filter(matchesDistributionPackageTarget)
 	if (!isRecord(entry)) return []
 	return Object.values(entry).flatMap((nested) => collectTargets(nested))
 }
@@ -395,12 +327,6 @@ function isModule(target: string): boolean {
 	const dot = name.lastIndexOf('.')
 	if (name.endsWith(ADDON_EXTENSION)) return true
 	return dot === -1 || MODULE_EXTENSIONS.includes(name.slice(dot))
-}
-
-// Whether a resolved target is a declaration rather than the JavaScript a
-// `default` branch answers with when the entry declares no `types` condition.
-function isDeclaration(target: string): boolean {
-	return DECLARATION_EXTENSIONS.some((extension) => target.endsWith(extension))
 }
 
 // The declarations the Node module, Node CommonJS, and browser drives compare
@@ -589,7 +515,11 @@ function buildStage(): Stage {
 	const packed = join(SCRATCH, 'packed')
 	const consumer = join(SCRATCH, 'consumer')
 	mkdirSync(packed, { recursive: true })
-	const pack = runNpm(['pack', '--ignore-scripts', '--pack-destination', packed], ROOT)
+	const pack = runDistributionNpm(
+		['pack', '--ignore-scripts', '--pack-destination', packed],
+		ROOT,
+		SCRATCH,
+	)
 	if (pack.status !== 0) throw new Error(`npm pack refused this workspace: ${readOutput(pack)}`)
 	const archives = readdirSync(packed).filter((name) => name.endsWith('.tgz'))
 	const archive = archives[0]
@@ -599,9 +529,10 @@ function buildStage(): Stage {
 	writeFile(join(consumer, 'package.json'), CONSUMER_MANIFEST)
 	writeFile(join(consumer, ESM_DRIVER), ESM_DRIVER_SOURCE)
 	writeFile(join(consumer, CJS_DRIVER), CJS_DRIVER_SOURCE)
-	const install = runNpm(
+	const install = runDistributionNpm(
 		['install', '--ignore-scripts', '--no-audit', '--no-fund', join(packed, archive)],
 		consumer,
+		SCRATCH,
 	)
 	if (install.status !== 0) {
 		throw new Error(`Installing the packed archive failed: ${readOutput(install)}`)
@@ -677,7 +608,7 @@ afterAll(() => {
 // so every throw here removes the scratch tree on its way out.
 function openStage(): Stage | undefined {
 	try {
-		if (runNpm(PING, ROOT).status !== 0) {
+		if (runDistributionNpm(PING, ROOT, SCRATCH).status !== 0) {
 			if (!RELEASE) return undefined
 			throw new Error(
 				'The release gate requires a reachable npm registry, and npm ping did not answer',

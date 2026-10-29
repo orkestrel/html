@@ -28,8 +28,10 @@ import {
 	projectSpan,
 	pruneDocument,
 	renderHTML,
+	renderHTMLPart,
 	renderText,
 	resolveAttributes,
+	resolveDerivations,
 	resolveURL,
 	rewriteDocument,
 	sanitizeAttributes,
@@ -37,11 +39,13 @@ import {
 	scanAttributes,
 	scanComment,
 	scanDoctype,
+	scanHTMLAttributeValue,
+	scanHTMLIndex,
 	scanRawText,
 	scanTag,
 	walkNodes,
 } from '@src/core'
-import { bench, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createRecorder } from '@orkestrel/test'
 import {
 	URL_SAFETY_GROUPS,
@@ -56,7 +60,77 @@ import {
 	hasAdjacentHTMLText,
 } from '../../setup.js'
 
+function countHTMLChildren(_node: HTMLNode, children: readonly number[]): number {
+	return 1 + children.reduce((total, count) => total + count, 0)
+}
+
+function countHTMLLeaf(): number {
+	return 1
+}
+
 describe('HTML escaping and URL helpers', () => {
+	it('resolveDerivations keeps one source and refuses conflicting identities', () => {
+		const node: HTMLNode = { category: 'text', value: 'x' }
+		const other: HTMLNode = { category: 'text', value: 'x' }
+		expect(resolveDerivations([[node, node]]).get(node)).toBe(node)
+		expect(
+			resolveDerivations([
+				[node, node],
+				[node, node],
+			]).get(node),
+		).toBe(node)
+		const ambiguous = resolveDerivations([
+			[node, node],
+			[node, other],
+			[node, node],
+		])
+		expect([...ambiguous]).toEqual([[node, undefined]])
+		expect(resolveDerivations([]).size).toBe(0)
+	})
+
+	it('scanHTMLIndex visits ascending indices and stops at the first refusal', () => {
+		const reads = createRecorder<readonly [number]>()
+		expect(
+			scanHTMLIndex(2, 8, (index) => {
+				reads.handler(index)
+				return index < 5
+			}),
+		).toBe(5)
+		expect(reads.calls).toEqual([[2], [3], [4], [5]])
+		expect(scanHTMLIndex(4, 4, () => true)).toBe(4)
+		expect(scanHTMLIndex(0, 3, () => true)).toBe(3)
+	})
+
+	it('scanHTMLIndex propagates a predicate failure without visiting later indices', () => {
+		const reads = createRecorder<readonly [number]>()
+		const failure = new Error('predicate')
+		expect(() =>
+			scanHTMLIndex(0, 8, (index) => {
+				reads.handler(index)
+				if (index === 2) throw failure
+				return true
+			}),
+		).toThrow(failure)
+		expect(reads.calls).toEqual([[0], [1], [2]])
+	})
+
+	it('scanHTMLAttributeValue decodes complete values and refuses broken boundaries', () => {
+		expect(scanHTMLAttributeValue('"a&amp;b">', 0)).toEqual(['a&b', 9])
+		expect(scanHTMLAttributeValue('value >', 0)).toEqual(['value', 5])
+		expect(scanHTMLAttributeValue('"x"tail>', 0)).toBeUndefined()
+		expect(scanHTMLAttributeValue('"unfinished>', 0)).toBeUndefined()
+		expect(scanHTMLAttributeValue('>', 0)).toBeUndefined()
+	})
+
+	it('renderHTMLPart combines rendered children and refuses unsafe leaf syntax', () => {
+		expect(renderHTMLPart({ category: 'text', value: '<' }, [])).toBe('&lt;')
+		expect(renderHTMLPart({ category: 'document', children: [] }, ['a', 'b'])).toBe('ab')
+		expect(renderHTMLPart({ category: 'comment', value: '-->' }, [])).toBe('')
+		expect(
+			renderHTMLPart({ category: 'element', name: 'p', attributes: [], children: [] }, ['x']),
+		).toBe('<p>x</p>')
+	})
+
 	it('normalizeSource maps normalized boundaries to original UTF-16 offsets', () => {
 		const [source, offsets] = normalizeSource('A\r\n𝕏\r\0B')
 		expect(source).toBe('A\n𝕏\n\uFFFDB')
@@ -385,13 +459,13 @@ describe('scanning pieces', () => {
 		expect(scanTag('<DIV A=1>', 0)).toEqual({
 			name: 'div',
 			attributes: [{ name: 'a', value: '1' }],
-			closing: false,
+			final: false,
 			next: 9,
 		})
 		expect(scanTag('x</DiV >y', 1)).toEqual({
 			name: 'div',
 			attributes: [],
-			closing: true,
+			final: true,
 			next: 8,
 		})
 		expect(scanTag('<div', 0)).toBeUndefined()
@@ -645,7 +719,7 @@ describe('strict start tag parsing', () => {
 		expect(scanTag(source, 0)).toEqual({
 			name: 'div',
 			attributes: [{ name: 'disabled' }, { name: 'title' }],
-			closing: false,
+			final: false,
 			next: 26,
 		})
 		expect(renderHTML(parseDocument(source))).toBe('<div disabled title><p>safe</p></div>')
@@ -1042,12 +1116,16 @@ describe('pruneDocument', () => {
 
 	it('stays total and depth-capped over a hostile deep document', () => {
 		const document = buildDeepHTMLDocument(MAX_DEPTH + 500)
-		let count = 0
+		const seen = createRecorder<[HTMLNode]>()
 		const [pruned] = pruneDocument(document, (node) => {
-			count += 1
+			seen.handler(node)
 			return [node]
 		})
-		expect(count).toBeLessThanOrEqual(MAX_DEPTH + 2)
+		expect(seen.count).toBeLessThanOrEqual(MAX_DEPTH + 2)
+		expect(seen.calls.map(([node]) => node.category)).toEqual([
+			...Array.from({ length: MAX_DEPTH + 1 }, () => 'element'),
+			'document',
+		])
 		expect(pruned.category).toBe('document')
 	})
 
@@ -1271,11 +1349,11 @@ describe('AST walkers', () => {
 	it('foldNode is a total children-first catamorphism', () => {
 		const document = parseDocument('<p>x<strong>y</strong></p><!--z-->')
 		const handlers: HTMLHandlerMap<number> = {
-			document: (_node, children) => 1 + children.reduce((total, count) => total + count, 0),
-			element: (_node, children) => 1 + children.reduce((total, count) => total + count, 0),
-			text: () => 1,
-			comment: () => 1,
-			doctype: () => 1,
+			document: countHTMLChildren,
+			element: countHTMLChildren,
+			text: countHTMLLeaf,
+			comment: countHTMLLeaf,
+			doctype: countHTMLLeaf,
 		}
 		expect(foldNode(document, handlers)).toBe([...walkNodes(document)].length)
 	})
@@ -1380,35 +1458,3 @@ describe('AST walkers', () => {
 		expect(renderText(document)).toBe('')
 	})
 })
-
-// How decode cost moves as each entity-pressure input doubles. The preceding suite proves what the
-// decoder returns; these report what it costs and assert nothing, so only `npm run test:bench`
-// collects them and no gate reads them. Each pair is the input pair the deleted wall-clock ratio
-// assertions used.
-if (import.meta.env.MODE === 'benchmark') {
-	const recognizedSmall = '&NotEqualTilde;'.repeat(40_000)
-	const recognizedLarge = '&NotEqualTilde;'.repeat(80_000)
-	const unknownSmall = `&${'unknown'.repeat(30_000)};`
-	const unknownLarge = `&${'unknown'.repeat(60_000)};`
-	const nestedSmall = '&amp;amp;'.repeat(40_000)
-	const nestedLarge = '&amp;amp;'.repeat(80_000)
-
-	bench('decodeEntities — 40,000 recognized references', () => {
-		decodeEntities(recognizedSmall)
-	})
-	bench('decodeEntities — 80,000 recognized references', () => {
-		decodeEntities(recognizedLarge)
-	})
-	bench('decodeEntities — one unknown name of 30,000 segments', () => {
-		decodeEntities(unknownSmall)
-	})
-	bench('decodeEntities — one unknown name of 60,000 segments', () => {
-		decodeEntities(unknownLarge)
-	})
-	bench('decodeEntities — 40,000 nested references', () => {
-		decodeEntities(nestedSmall)
-	})
-	bench('decodeEntities — 80,000 nested references', () => {
-		decodeEntities(nestedLarge)
-	})
-}

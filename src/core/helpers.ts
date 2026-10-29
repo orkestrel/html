@@ -3,10 +3,12 @@ import type {
 	DoctypeNode,
 	ElementNode,
 	HTMLAttribute,
+	HTMLAttributeValue,
 	HTMLDerivation,
 	HTMLDocument,
 	HTMLHandlerMap,
 	HTMLNode,
+	HTMLOrigin,
 	HTMLOpenPosition,
 	HTMLPruneHandler,
 	HTMLRawText,
@@ -42,22 +44,17 @@ import { isHTMLCodePoint } from './validators.js'
  * @returns The normalized source and its boundary-to-original offset map
  */
 export function normalizeSource(html: string): HTMLSource {
-	let source = ''
-	const offsets: number[] = [0]
-	let index = 0
-	while (index < html.length) {
-		const character = html[index]
-		if (character === '\r') {
-			index += html[index + 1] === '\n' ? 2 : 1
-			source += '\n'
-			offsets.push(index)
-			continue
+	const segments = [...html.matchAll(/\r\n|[\s\S]/g)].map((match) => {
+		const newline = match[0] === '\r\n' || match[0] === '\r'
+		return {
+			value: newline ? '\n' : match[0] === '\0' ? '\uFFFD' : match[0],
+			end: match.index + match[0].length,
 		}
-		source += character === '\0' ? '\uFFFD' : (character ?? '')
-		index += 1
-		offsets.push(index)
-	}
-	return [source, offsets]
+	})
+	return [
+		segments.map((segment) => segment.value).join(''),
+		[0, ...segments.map((segment) => segment.end)],
+	]
 }
 
 /**
@@ -222,63 +219,50 @@ export function isEmptyElement(element: ElementNode): boolean {
  * @returns The decoded value, retaining unknown named references literally
  */
 export function decodeEntities(value: string): string {
-	let decoded = ''
-	let index = 0
-	while (index < value.length) {
+	const parts: string[] = []
+	Iterator.from(value.matchAll(/[\s\S]/g)).reduce((next, match) => {
+		const index = match.index
+		if (index < next) return next
 		if (value[index] !== '&') {
-			decoded += value[index] ?? ''
-			index += 1
-			continue
+			parts.push(value[index] ?? '')
+			return index + 1
 		}
-		const start = index
-		index += 1
-		if (value[index] === '#') {
-			index += 1
-			let radix = 10
-			if (value[index] === 'x' || value[index] === 'X') {
-				radix = 16
-				index += 1
-			}
-			const digits = index
-			while (
-				index < value.length &&
-				(radix === 16 ? /[0-9A-Fa-f]/.test(value[index] ?? '') : /[0-9]/.test(value[index] ?? ''))
-			) {
-				index += 1
-			}
-			if (index > digits && value[index] === ';') {
-				const scalar = Number.parseInt(value.slice(digits, index), radix)
-				decoded +=
+		if (value[index + 1] === '#') {
+			const hexadecimal = value[index + 2] === 'x' || value[index + 2] === 'X'
+			const radix = hexadecimal ? 16 : 10
+			const digits = index + (hexadecimal ? 3 : 2)
+			const end = scanHTMLIndex(digits, value.length, (position) =>
+				(radix === 16 ? /[0-9A-Fa-f]/ : /[0-9]/).test(value[position] ?? ''),
+			)
+			if (end > digits && value[end] === ';') {
+				const scalar = Number.parseInt(value.slice(digits, end), radix)
+				parts.push(
 					isFiniteNumber(scalar) &&
-					scalar > 0 &&
-					scalar <= 0x10ffff &&
-					!(scalar >= 0xd800 && scalar <= 0xdfff)
+						scalar > 0 &&
+						scalar <= 0x10ffff &&
+						!(scalar >= 0xd800 && scalar <= 0xdfff)
 						? String.fromCodePoint(scalar)
-						: '\uFFFD'
-				index += 1
-				continue
+						: '\uFFFD',
+				)
+				return end + 1
 			}
-			decoded += value.slice(start, index)
-			continue
+			parts.push(value.slice(index, end))
+			return end
 		}
-		const name = index
-		while (index < value.length && /[A-Za-z0-9]/.test(value[index] ?? '')) index += 1
-		if (index > name && value[index] === ';') {
-			const key = value.slice(name, index)
+		const name = index + 1
+		const end = scanHTMLIndex(name, value.length, (position) =>
+			/[A-Za-z0-9]/.test(value[position] ?? ''),
+		)
+		if (end > name && value[end] === ';') {
+			const key = value.slice(name, end)
 			const entity = Object.hasOwn(NAMED_ENTITIES, key) ? NAMED_ENTITIES[key] : undefined
-			if (entity !== undefined) {
-				decoded += entity
-				index += 1
-				continue
-			}
-			decoded += value.slice(start, index + 1)
-			index += 1
-			continue
+			parts.push(entity ?? value.slice(index, end + 1))
+			return end + 1
 		}
-		decoded += '&'
-		index = start + 1
-	}
-	return decoded
+		parts.push('&')
+		return index + 1
+	}, 0)
+	return parts.join('')
 }
 
 /**
@@ -293,58 +277,46 @@ export function decodeEntities(value: string): string {
  */
 export function scanAttributes(source: string): readonly HTMLAttribute[] {
 	const attributes: HTMLAttribute[] = []
-	const names = new Set<string>()
-	let index = 0
-	while (index < source.length) {
-		while (index < source.length && HTML_WHITESPACE.includes(source[index] ?? '')) index += 1
-		if (index >= source.length || source[index] === '/') break
-		const start = index
-		while (
-			index < source.length &&
-			!HTML_WHITESPACE.includes(source[index] ?? '') &&
-			source[index] !== '=' &&
-			source[index] !== '/' &&
-			source[index] !== '"' &&
-			source[index] !== "'" &&
-			source[index] !== '<' &&
-			source[index] !== '>'
-		) {
-			index += 1
-		}
-		if (index === start) {
-			index += 1
-			continue
-		}
-		const name = lowercaseASCII(source.slice(start, index))
-		while (index < source.length && HTML_WHITESPACE.includes(source[index] ?? '')) index += 1
-		let value: string | undefined
-		if (source[index] === '=') {
-			index += 1
-			while (index < source.length && HTML_WHITESPACE.includes(source[index] ?? '')) index += 1
-			const quote = source[index]
-			if (quote === '"' || quote === "'") {
-				index += 1
-				const valueStart = index
-				while (index < source.length && source[index] !== quote) index += 1
-				if (index < source.length) {
-					value = decodeEntities(source.slice(valueStart, index))
-					index += 1
-				} else {
-					index = source.length
-				}
-			} else {
-				const valueStart = index
-				while (index < source.length && !HTML_WHITESPACE.includes(source[index] ?? '')) {
-					index += 1
-				}
-				if (index > valueStart) value = decodeEntities(source.slice(valueStart, index))
-			}
-		}
-		if (!names.has(name)) {
-			names.add(name)
+	Iterator.from(source.matchAll(/[\s\S]/g)).reduce((next, match) => {
+		if (match.index < next) return next
+		const start = scanHTMLIndex(next, source.length, (index) =>
+			HTML_WHITESPACE.includes(source[index] ?? ''),
+		)
+		if (start >= source.length || source[start] === '/') return source.length
+		const end = scanHTMLIndex(start, source.length, (index) => {
+			const character = source[index] ?? ''
+			return (
+				!HTML_WHITESPACE.includes(character) && !['=', '/', '"', "'", '<', '>'].includes(character)
+			)
+		})
+		if (end === start) return start + 1
+		const name = lowercaseASCII(source.slice(start, end))
+		const boundary = scanHTMLIndex(end, source.length, (index) =>
+			HTML_WHITESPACE.includes(source[index] ?? ''),
+		)
+		const assigned = source[boundary] === '='
+		const valueStart = assigned
+			? scanHTMLIndex(boundary + 1, source.length, (index) =>
+					HTML_WHITESPACE.includes(source[index] ?? ''),
+				)
+			: boundary
+		const quote = source[valueStart]
+		const quoted = assigned && (quote === '"' || quote === "'")
+		const content = valueStart + (quoted ? 1 : 0)
+		const finish = assigned
+			? scanHTMLIndex(content, source.length, (index) =>
+					quoted ? source[index] !== quote : !HTML_WHITESPACE.includes(source[index] ?? ''),
+				)
+			: boundary
+		const value =
+			assigned && (quoted ? finish < source.length : finish > content)
+				? decodeEntities(source.slice(content, finish))
+				: undefined
+		if (!attributes.some((attribute) => attribute.name === name)) {
 			attributes.push(value === undefined ? { name } : { name, value })
 		}
-	}
+		return finish + (quoted && finish < source.length ? 1 : 0)
+	}, 0)
 	return attributes
 }
 
@@ -362,107 +334,93 @@ export function scanAttributes(source: string): readonly HTMLAttribute[] {
  */
 export function parseStartTag(html: string, offset: number): HTMLStartTag | undefined {
 	if (!isInteger(offset) || offset < 0 || html[offset] !== '<') return undefined
-	let index = offset + 1
-	if (!/[A-Za-z]/.test(html[index] ?? '')) return undefined
-	const nameStart = index
-	while (index < html.length && /[A-Za-z0-9:-]/.test(html[index] ?? '')) index += 1
-	const name = lowercaseASCII(html.slice(nameStart, index))
-	const attributes: HTMLAttribute[] = []
-	const names = new Set<string>()
-	let separated = false
+	const nameStart = offset + 1
+	if (!/[A-Za-z]/.test(html[nameStart] ?? '')) return undefined
+	const nameEnd = scanHTMLIndex(nameStart, html.length, (index) =>
+		/[A-Za-z0-9:-]/.test(html[index] ?? ''),
+	)
+	const name = lowercaseASCII(html.slice(nameStart, nameEnd))
+	const steps: Array<{
+		readonly next: number
+		readonly separated: boolean
+		readonly attribute: HTMLAttribute
+	}> = []
 	for (;;) {
-		const boundary = html[index]
-		if (boundary !== '>' && boundary !== '/' && !separated) {
-			if (boundary === undefined || !HTML_WHITESPACE.includes(boundary)) return undefined
-			while (html[index] !== undefined && HTML_WHITESPACE.includes(html[index] ?? '')) {
-				index += 1
+		const state = steps.at(-1) ?? { next: nameEnd, separated: false }
+		const boundary = html[state.next]
+		if (
+			boundary !== '>' &&
+			boundary !== '/' &&
+			!state.separated &&
+			(boundary === undefined || !HTML_WHITESPACE.includes(boundary))
+		) {
+			return undefined
+		}
+		const index =
+			boundary !== '>' && boundary !== '/' && !state.separated
+				? scanHTMLIndex(state.next, html.length, (position) =>
+						HTML_WHITESPACE.includes(html[position] ?? ''),
+					)
+				: state.next
+		const following = html[index]
+		if (following === '>' || following === '/') {
+			if (following === '/' && html[index + 1] !== '>') return undefined
+			return {
+				name,
+				attributes: steps.map((step) => step.attribute),
+				slashed: following === '/',
+				next: index + (following === '/' ? 2 : 1),
 			}
 		}
-		separated = false
-		const following = html[index]
-		if (following === '>') return { name, attributes, slashed: false, next: index + 1 }
-		if (following === '/') {
-			return html[index + 1] === '>'
-				? { name, attributes, slashed: true, next: index + 2 }
-				: undefined
-		}
 		if (following === undefined) return undefined
-		const attributeStart = index
-		for (;;) {
-			const character = html[index]
+		const end = scanHTMLIndex(index, html.length, (position) => {
+			const character = html[position]
 			if (
 				character === undefined ||
 				HTML_WHITESPACE.includes(character) ||
-				character === '=' ||
-				character === '/' ||
-				character === '>'
+				['=', '/', '>', '"', "'", '<'].includes(character)
 			) {
-				break
+				return false
 			}
-			const point = html.codePointAt(index)
-			if (character === '"' || character === "'" || character === '<' || !isHTMLCodePoint(point)) {
-				return undefined
-			}
-			index += point > 0xffff ? 2 : 1
+			return (
+				isHTMLCodePoint(html.codePointAt(position)) ||
+				(position > index && (html.codePointAt(position - 1) ?? 0) > 0xffff)
+			)
+		})
+		const delimiter = html[end]
+		if (
+			end === index ||
+			(delimiter !== undefined &&
+				!HTML_WHITESPACE.includes(delimiter) &&
+				delimiter !== '=' &&
+				delimiter !== '/' &&
+				delimiter !== '>')
+		) {
+			return undefined
 		}
-		if (index === attributeStart) return undefined
-		const attributeName = lowercaseASCII(html.slice(attributeStart, index))
-		if (names.has(attributeName)) return undefined
-		names.add(attributeName)
-		const attributeEnd = index
-		while (html[index] !== undefined && HTML_WHITESPACE.includes(html[index] ?? '')) index += 1
-		const spacing = index > attributeEnd
-		let value: string | undefined
-		if (html[index] === '=') {
-			index += 1
-			while (html[index] !== undefined && HTML_WHITESPACE.includes(html[index] ?? '')) index += 1
-			const quote = html[index]
-			if (quote === '"' || quote === "'") {
-				index += 1
-				const valueStart = index
-				for (;;) {
-					const character = html[index]
-					if (character === undefined) return undefined
-					if (character === quote) break
-					const point = html.codePointAt(index)
-					if (!isHTMLCodePoint(point)) return undefined
-					index += point > 0xffff ? 2 : 1
-				}
-				value = decodeEntities(html.slice(valueStart, index))
-				index += 1
-				const delimiter = html[index]
-				if (
-					delimiter !== '>' &&
-					delimiter !== '/' &&
-					(delimiter === undefined || !HTML_WHITESPACE.includes(delimiter))
-				) {
-					return undefined
-				}
-			} else {
-				const valueStart = index
-				for (;;) {
-					const character = html[index]
-					if (character === undefined) return undefined
-					if (character === '>' || HTML_WHITESPACE.includes(character)) break
-					const point = html.codePointAt(index)
-					if (
-						character === '"' ||
-						character === "'" ||
-						character === '<' ||
-						character === '=' ||
-						character === '`' ||
-						!isHTMLCodePoint(point)
-					) {
-						return undefined
-					}
-					index += point > 0xffff ? 2 : 1
-				}
-				if (index === valueStart) return undefined
-				value = decodeEntities(html.slice(valueStart, index))
-			}
+		const attributeName = lowercaseASCII(html.slice(index, end))
+		if (steps.some((step) => step.attribute.name === attributeName)) return undefined
+		const valueStart = scanHTMLIndex(end, html.length, (position) =>
+			HTML_WHITESPACE.includes(html[position] ?? ''),
+		)
+		if (html[valueStart] !== '=') {
+			steps.push({
+				next: valueStart,
+				separated: valueStart > end,
+				attribute: { name: attributeName },
+			})
+			continue
 		}
-		attributes.push(value === undefined ? { name: attributeName } : { name: attributeName, value })
-		if (value === undefined && spacing) separated = true
+		const content = scanHTMLIndex(valueStart + 1, html.length, (position) =>
+			HTML_WHITESPACE.includes(html[position] ?? ''),
+		)
+		const scanned = scanHTMLAttributeValue(html, content)
+		if (scanned === undefined) return undefined
+		steps.push({
+			next: scanned[1],
+			separated: false,
+			attribute: { name: attributeName, value: scanned[0] },
+		})
 	}
 }
 
@@ -479,71 +437,62 @@ export function parseStartTag(html: string, offset: number): HTMLStartTag | unde
  */
 export function scanTag(html: string, offset: number): HTMLTag | undefined {
 	if (html[offset] !== '<') return undefined
-	const closing = html[offset + 1] === '/'
-	if (!closing) {
+	const final = html[offset + 1] === '/'
+	if (!final) {
 		const parsed = parseStartTag(html, offset)
 		if (parsed !== undefined) {
-			return {
-				name: parsed.name,
-				attributes: parsed.attributes,
-				closing: false,
-				next: parsed.next,
-			}
+			return { name: parsed.name, attributes: parsed.attributes, final: false, next: parsed.next }
 		}
 	}
-	let index = offset + (closing ? 2 : 1)
-	if (!/[A-Za-z]/.test(html[index] ?? '')) return undefined
-	const nameStart = index
-	while (index < html.length && /[A-Za-z0-9:-]/.test(html[index] ?? '')) index += 1
-	const name = lowercaseASCII(html.slice(nameStart, index))
-	const attributesStart = index
-	while (index < html.length) {
+	const start = offset + (final ? 2 : 1)
+	if (!/[A-Za-z]/.test(html[start] ?? '')) return undefined
+	const attributesStart = scanHTMLIndex(start, html.length, (index) =>
+		/[A-Za-z0-9:-]/.test(html[index] ?? ''),
+	)
+	const name = lowercaseASCII(html.slice(start, attributesStart))
+	const parts: Array<{ readonly next: number; readonly value: string }> = []
+	for (;;) {
+		const index = parts.at(-1)?.next ?? attributesStart
+		if (!(index < html.length)) return undefined
 		const character = html[index]
 		if (character === '>') {
-			let attributeSource = html.slice(attributesStart, index)
-			let end = attributeSource.length
-			while (end > 0 && HTML_WHITESPACE.includes(attributeSource[end - 1] ?? '')) end -= 1
-			const trimmed = attributeSource.slice(0, end)
-			if (
+			const source = parts.map((part) => part.value).join('')
+			const trailing = scanHTMLIndex(0, source.length, (position) =>
+				HTML_WHITESPACE.includes(source[source.length - position - 1] ?? ''),
+			)
+			const trimmed = source.slice(0, source.length - trailing)
+			const attributes =
 				trimmed.endsWith('/') &&
 				(trimmed.length === 1 || HTML_WHITESPACE.includes(trimmed[trimmed.length - 2] ?? ''))
-			) {
-				attributeSource = trimmed.slice(0, -1)
-			}
-			return {
-				name,
-				attributes: closing ? [] : scanAttributes(attributeSource),
-				closing,
-				next: index + 1,
-			}
+					? trimmed.slice(0, -1)
+					: source
+			return { name, attributes: final ? [] : scanAttributes(attributes), final, next: index + 1 }
 		}
-		if (character === '"' || character === "'") {
-			const quote = character
-			let recovery: number | undefined
-			index += 1
-			while (index < html.length && html[index] !== quote && html[index] !== '<') {
-				if (recovery === undefined && html[index] === '>') recovery = index
-				index += 1
-			}
-			if (html[index] === quote) {
-				index += 1
-				continue
-			}
-			if (recovery === undefined) {
-				while (index < html.length && html[index] !== '>') index += 1
-				if (html[index] === '>') recovery = index
-			}
-			if (recovery === undefined) return undefined
-			return {
-				name,
-				attributes: closing ? [] : scanAttributes(html.slice(attributesStart, recovery)),
-				closing,
-				next: recovery + 1,
-			}
+		if (character !== '"' && character !== "'") {
+			parts.push({ next: index + 1, value: html[index] ?? '' })
+			continue
 		}
-		index += 1
+		const end = scanHTMLIndex(index + 1, html.length, (position) => {
+			return html[position] !== character && html[position] !== '<'
+		})
+		if (html[end] === character) {
+			parts.push({ next: end + 1, value: html.slice(index, end + 1) })
+			continue
+		}
+		const first = html.indexOf('>', index + 1)
+		const recovery =
+			first >= 0 && first < end
+				? first
+				: scanHTMLIndex(end, html.length, (position) => html[position] !== '>')
+		if (html[recovery] !== '>') return undefined
+		const source = [...parts.map((part) => part.value), html.slice(index, recovery)].join('')
+		return {
+			name,
+			attributes: final ? [] : scanAttributes(source),
+			final,
+			next: recovery + 1,
+		}
 	}
-	return undefined
 }
 
 /**
@@ -567,27 +516,19 @@ export function scanComment(html: string, offset: number): HTMLScan<CommentNode>
 		if (html[start] === '-' && html[start + 1] === '>') {
 			return { node: { category: 'comment', value: '' }, next: start + 2 }
 		}
-		let index = start
-		while (index < html.length) {
-			if (html.startsWith('-->', index)) {
-				return {
-					node: { category: 'comment', value: html.slice(start, index) },
-					next: index + 3,
-				}
+		const index = scanHTMLIndex(start, html.length, (position) => {
+			return !html.startsWith('-->', position) && !html.startsWith('--!>', position)
+		})
+		if (index < html.length) {
+			return {
+				node: { category: 'comment', value: html.slice(start, index) },
+				next: index + (html.startsWith('-->', index) ? 3 : 4),
 			}
-			if (html.startsWith('--!>', index)) {
-				return {
-					node: { category: 'comment', value: html.slice(start, index) },
-					next: index + 4,
-				}
-			}
-			index += 1
 		}
 		return { node: { category: 'comment', value: html.slice(start) }, next: html.length }
 	}
 	if (!html.startsWith('<!', offset) && !html.startsWith('<?', offset)) return undefined
-	let end = offset + 2
-	while (end < html.length && html[end] !== '>') end += 1
+	const end = scanHTMLIndex(offset + 2, html.length, (index) => html[index] !== '>')
 	return end >= html.length
 		? { node: { category: 'comment', value: html.slice(offset + 2) }, next: html.length }
 		: {
@@ -604,67 +545,69 @@ export function scanComment(html: string, offset: number): HTMLScan<CommentNode>
  * @returns The doctype node and next offset, or `undefined` for a non-doctype or incomplete input
  */
 export function scanDoctype(html: string, offset: number): HTMLScan<DoctypeNode> | undefined {
-	if (lowercaseASCII(html.slice(offset, offset + 9)) !== '<!doctype') return undefined
+	if (!isInteger(offset) || lowercaseASCII(html.slice(offset, offset + 9)) !== '<!doctype') {
+		return undefined
+	}
 	const boundary = html[offset + 9]
 	if (boundary !== undefined && boundary !== '>' && !HTML_WHITESPACE.includes(boundary)) {
 		return undefined
 	}
-	let end = offset + 9
-	let doctypeQuote: string | undefined
-	while (end < html.length) {
-		const character = html[end]
-		if (doctypeQuote !== undefined) {
-			if (character === doctypeQuote) doctypeQuote = undefined
-		} else if (character === '"' || character === "'") {
-			doctypeQuote = character
-		} else if (character === '>') {
-			break
-		}
-		end += 1
-	}
-	if (end >= html.length || doctypeQuote !== undefined) return undefined
-	const body = html.slice(offset + 9, end)
-	let index = 0
-	while (index < body.length && HTML_WHITESPACE.includes(body[index] ?? '')) index += 1
-	const nameStart = index
-	while (index < body.length && !HTML_WHITESPACE.includes(body[index] ?? '')) index += 1
-	const name = lowercaseASCII(body.slice(nameStart, index))
+	const steps: Array<{ readonly value: string; readonly quote: string | undefined }> = []
+	const close = Iterator.from(html.slice(offset + 9).matchAll(/[\s\S]/g)).find((match) => {
+		const quote = steps.at(-1)?.quote
+		const character = match[0]
+		if (quote === undefined && character === '>') return true
+		const opener = character === '"' || character === "'" ? character : undefined
+		const following = quote === undefined ? opener : character === quote ? undefined : quote
+		steps.push({ value: character, quote: following })
+		return false
+	})
+	if (close === undefined) return undefined
+	const end = offset + 9 + close.index
+	const body = steps.map((step) => step.value).join('')
+	const nameStart = scanHTMLIndex(0, body.length, (index) =>
+		HTML_WHITESPACE.includes(body[index] ?? ''),
+	)
+	const nameEnd = scanHTMLIndex(nameStart, body.length, (index) => {
+		return !HTML_WHITESPACE.includes(body[index] ?? '')
+	})
+	const name = lowercaseASCII(body.slice(nameStart, nameEnd))
 	if (name.length === 0) return undefined
-	while (index < body.length && HTML_WHITESPACE.includes(body[index] ?? '')) index += 1
-	const keywordStart = index
-	while (index < body.length && /[A-Za-z]/.test(body[index] ?? '')) index += 1
-	const keyword = lowercaseASCII(body.slice(keywordStart, index))
-	while (index < body.length && HTML_WHITESPACE.includes(body[index] ?? '')) index += 1
-	let publicIdentifier: string | undefined
-	let systemIdentifier: string | undefined
-	if (keyword === 'public') {
-		const quote = body[index]
-		if (quote === '"' || quote === "'") {
-			index += 1
-			const identifierStart = index
-			while (index < body.length && body[index] !== quote) index += 1
-			if (index < body.length) {
-				publicIdentifier = body.slice(identifierStart, index)
-				index += 1
-				while (index < body.length && HTML_WHITESPACE.includes(body[index] ?? '')) index += 1
-				const systemQuote = body[index]
-				if (systemQuote === '"' || systemQuote === "'") {
-					index += 1
-					const systemStart = index
-					while (index < body.length && body[index] !== systemQuote) index += 1
-					if (index < body.length) systemIdentifier = body.slice(systemStart, index)
-				}
-			}
-		}
-	} else if (keyword === 'system') {
-		const quote = body[index]
-		if (quote === '"' || quote === "'") {
-			index += 1
-			const identifierStart = index
-			while (index < body.length && body[index] !== quote) index += 1
-			if (index < body.length) systemIdentifier = body.slice(identifierStart, index)
-		}
-	}
+	const keywordStart = scanHTMLIndex(nameEnd, body.length, (index) =>
+		HTML_WHITESPACE.includes(body[index] ?? ''),
+	)
+	const keywordEnd = scanHTMLIndex(keywordStart, body.length, (index) =>
+		/[A-Za-z]/.test(body[index] ?? ''),
+	)
+	const keyword = lowercaseASCII(body.slice(keywordStart, keywordEnd))
+	const start = scanHTMLIndex(keywordEnd, body.length, (index) =>
+		HTML_WHITESPACE.includes(body[index] ?? ''),
+	)
+	const quote = body[start]
+	const quoted = quote === '"' || quote === "'"
+	const identifierEnd = quoted
+		? scanHTMLIndex(start + 1, body.length, (index) => body[index] !== quote)
+		: start
+	const identifier =
+		quoted && identifierEnd < body.length ? body.slice(start + 1, identifierEnd) : undefined
+	const publicIdentifier = keyword === 'public' ? identifier : undefined
+	const systemStart =
+		publicIdentifier === undefined
+			? start
+			: scanHTMLIndex(identifierEnd + 1, body.length, (index) =>
+					HTML_WHITESPACE.includes(body[index] ?? ''),
+				)
+	const systemQuote = body[systemStart]
+	const systemQuoted = systemQuote === '"' || systemQuote === "'"
+	const systemEnd = systemQuoted
+		? scanHTMLIndex(systemStart + 1, body.length, (index) => body[index] !== systemQuote)
+		: systemStart
+	const systemIdentifier =
+		keyword === 'system'
+			? identifier
+			: publicIdentifier !== undefined && systemQuoted && systemEnd < body.length
+				? body.slice(systemStart + 1, systemEnd)
+				: undefined
 	const node: DoctypeNode = {
 		category: 'doctype',
 		name,
@@ -691,42 +634,36 @@ export function scanRawText(
 	entities = false,
 ): HTMLRawText {
 	const marker = `</${lowercaseASCII(name)}`
-	let search = offset
-	while (search < html.length) {
-		const candidate = html.indexOf('<', search)
-		if (candidate < 0) break
-		if (lowercaseASCII(html.slice(candidate, candidate + marker.length)) !== marker) {
-			search = candidate + 1
-			continue
-		}
-		const boundary = html[candidate + marker.length]
-		if (boundary === '>' || (boundary !== undefined && HTML_WHITESPACE.includes(boundary))) {
+	const attempts: Array<{ readonly next: number; readonly span: HTMLSpan | undefined }> = []
+	if (offset < html.length) {
+		const start = Math.max(0, Math.trunc(offset))
+		for (const match of html.slice(start).matchAll(/</g)) {
+			const candidate = start + match.index
+			const next = attempts.at(-1)?.next ?? offset
+			if (candidate < next) continue
+			if (lowercaseASCII(html.slice(candidate, candidate + marker.length)) !== marker) {
+				attempts.push({ next: candidate + 1, span: undefined })
+				continue
+			}
+			const boundary = html[candidate + marker.length]
+			if (boundary !== '>' && (boundary === undefined || !HTML_WHITESPACE.includes(boundary))) {
+				attempts.push({ next: candidate + marker.length, span: undefined })
+				continue
+			}
 			const end = html.indexOf('>', candidate + marker.length)
 			if (end < 0) break
-			const value = html.slice(offset, candidate)
-			const node: TextNode = {
-				category: 'text',
-				value: entities ? decodeEntities(value) : value,
-			}
-			return {
-				node,
-				span: { start: offset, end: candidate },
-				next: end + 1,
-				closed: true,
-			}
+			attempts.push({ next: end + 1, span: { start: offset, end: candidate } })
+			break
 		}
-		search = candidate + marker.length
 	}
-	const value = html.slice(offset)
-	const node: TextNode = {
-		category: 'text',
-		value: entities ? decodeEntities(value) : value,
-	}
+	const found = attempts.find((entry) => entry.span !== undefined)
+	const span = found?.span ?? { start: offset, end: html.length }
+	const value = html.slice(offset, span.end)
 	return {
-		node,
-		span: { start: offset, end: html.length },
-		next: html.length,
-		closed: false,
+		node: { category: 'text', value: entities ? decodeEntities(value) : value },
+		span,
+		next: found?.next ?? html.length,
+		closed: found !== undefined,
 	}
 }
 
@@ -771,29 +708,23 @@ export function sanitizeURL(
 	schemes: ReadonlySet<string> | readonly string[],
 ): string {
 	const outcome = attempt(() => {
-		let decoded = value
-		let stable = false
-		for (let count = 0; count < 8; count += 1) {
-			const next = decodeEntities(decoded)
-			if (next === decoded) {
-				stable = true
-				break
-			}
-			decoded = next
-		}
-		if (!stable && decodeEntities(decoded) !== decoded) return ''
-		let cleaned = ''
-		for (const character of decoded) {
-			const point = character.codePointAt(0)
-			if (point !== undefined && point > 0x20 && !(point >= 0x7f && point <= 0x9f)) {
-				cleaned += character
-			}
-		}
+		const initial = { value, stable: false }
+		const passes = Array.from({ length: 8 }).reduce<typeof initial>((state) => {
+			if (state.stable) return state
+			const decoded = decodeEntities(state.value)
+			return { value: decoded, stable: decoded === state.value }
+		}, initial)
+		if (!passes.stable && decodeEntities(passes.value) !== passes.value) return ''
+		const cleaned = Iterator.from(passes.value)
+			.filter((character) => {
+				const point = character.codePointAt(0)
+				return point !== undefined && point > 0x20 && !(point >= 0x7f && point <= 0x9f)
+			})
+			.toArray()
+			.join('')
 		const first = cleaned[0]
 		const second = cleaned[1]
-		if ((first === '/' || first === '\\') && (second === '/' || second === '\\')) {
-			return ''
-		}
+		if ((first === '/' || first === '\\') && (second === '/' || second === '\\')) return ''
 		const match = /^([A-Za-z][A-Za-z0-9+.-]*):/.exec(cleaned)
 		if (match === null) return cleaned
 		const scheme = (match[1] ?? '').toLowerCase()
@@ -894,12 +825,12 @@ export function sanitizeAttributes(
 ): readonly HTMLAttribute[] {
 	const outcome = attempt((): readonly HTMLAttribute[] => {
 		const kept: HTMLAttribute[] = []
-		const names = new Set<string>()
+		const names: string[] = []
 		const has = Reflect.get(attributes, 'has')
 		for (const attribute of node.attributes) {
 			const name = attribute.name.toLowerCase()
-			if (names.has(name)) continue
-			names.add(name)
+			if (names.includes(name)) continue
+			names.push(name)
 			if (
 				name.length === 0 ||
 				/[\s"'/:<=>]/.test(name) ||
@@ -949,18 +880,17 @@ export function sanitizeAttributes(
  * @returns The element's attributes with every URL value resolved, in source order
  */
 export function resolveAttributes(node: ElementNode, base: string): readonly HTMLAttribute[] {
-	const outcome = attempt((): readonly HTMLAttribute[] => {
-		const resolved: HTMLAttribute[] = []
-		for (const attribute of node.attributes) {
-			const name = attribute.name.toLowerCase()
-			if (URL_ATTRIBUTES.includes(name) && attribute.value !== undefined) {
-				resolved.push({ name, value: resolveURL(attribute.value, base) })
-				continue
-			}
-			resolved.push(attribute.value === undefined ? { name } : { name, value: attribute.value })
-		}
-		return resolved
-	})
+	const outcome = attempt((): readonly HTMLAttribute[] =>
+		Iterator.from(node.attributes)
+			.map((attribute): HTMLAttribute => {
+				const name = attribute.name.toLowerCase()
+				if (URL_ATTRIBUTES.includes(name) && attribute.value !== undefined) {
+					return { name, value: resolveURL(attribute.value, base) }
+				}
+				return attribute.value === undefined ? { name } : { name, value: attribute.value }
+			})
+			.toArray(),
+	)
 	return outcome.success ? outcome.value : node.attributes
 }
 
@@ -1005,17 +935,19 @@ export function renderHTML(node: HTMLNode): string {
 					continue
 				}
 				visited.add(current)
-				const children: HTMLNode[] = []
-				if (
+				const children =
 					frame.depth < MAX_DEPTH &&
 					(current.category === 'document' ||
 						(current.category === 'element' && !RAW_ELEMENTS.includes(current.name.toLowerCase())))
-				) {
-					for (const child of current.children) if (child !== undefined) children.push(child)
-				}
+						? Iterator.from(current.children)
+								.filter((child) => child !== undefined)
+								.toArray()
+						: []
 				stack.push({ ...frame, expanded: true, count: children.length })
 				const depth = current.category === 'document' ? 0 : frame.depth + 1
-				for (let index = children.length - 1; index >= 0; index -= 1) {
+				const length = children.length
+				for (const offset of Array.from({ length }).keys()) {
+					const index = length - offset - 1
 					const child = children[index]
 					if (child !== undefined) {
 						stack.push({ node: child, depth, expanded: false, count: 0 })
@@ -1025,96 +957,7 @@ export function renderHTML(node: HTMLNode): string {
 			}
 			const children =
 				frame.count === 0 ? [] : values.splice(values.length - frame.count, frame.count)
-			let value = ''
-			switch (current.category) {
-				case 'document':
-					value = children.join('')
-					break
-				case 'text':
-					value = encodeText(current.value)
-					break
-				case 'comment':
-					if (
-						current.value.includes('-->') ||
-						current.value.includes('--!>') ||
-						current.value.startsWith('>') ||
-						current.value.startsWith('->')
-					) {
-						break
-					}
-					value = `<!--${current.value}-->`
-					break
-				case 'doctype': {
-					const name = current.name.toLowerCase()
-					if (!/^[a-z][a-z0-9:-]*$/.test(name)) break
-					value = `<!DOCTYPE ${name}`
-					const publicSafe =
-						current.public !== undefined &&
-						(!current.public.includes('"') || !current.public.includes("'"))
-					const systemSafe =
-						current.system !== undefined &&
-						(!current.system.includes('"') || !current.system.includes("'"))
-					if (publicSafe && current.public !== undefined) {
-						const quote = current.public.includes('"') ? "'" : '"'
-						value += ` PUBLIC ${quote}${current.public}${quote}`
-						if (systemSafe && current.system !== undefined) {
-							const systemQuote = current.system.includes('"') ? "'" : '"'
-							value += ` ${systemQuote}${current.system}${systemQuote}`
-						}
-					} else if (systemSafe && current.system !== undefined) {
-						const quote = current.system.includes('"') ? "'" : '"'
-						value += ` SYSTEM ${quote}${current.system}${quote}`
-					}
-					value += '>'
-					break
-				}
-				case 'element': {
-					const name = current.name.toLowerCase()
-					if (!/^[a-z][a-z0-9:-]*$/.test(name)) {
-						value = children.join('')
-						break
-					}
-					let attributes = ''
-					for (const attribute of current.attributes) {
-						const attributeName = attribute.name.toLowerCase()
-						if (attributeName.length === 0 || /[\s=/"':<>]/.test(attributeName)) {
-							continue
-						}
-						attributes +=
-							attribute.value === undefined
-								? ` ${attributeName}`
-								: ` ${attributeName}="${encodeAttribute(attribute.value)}"`
-					}
-					if (VOID_ELEMENTS.includes(name)) {
-						value = `<${name}${attributes}>`
-						break
-					}
-					if (RAW_ELEMENTS.includes(name)) {
-						let body = ''
-						for (const child of current.children) {
-							if (child.category === 'text') body += child.value
-						}
-						const lower = body.toLowerCase()
-						const marker = `</${name}`
-						let unsafe = false
-						let offset = 0
-						while (offset < lower.length) {
-							const match = lower.indexOf(marker, offset)
-							if (match < 0) break
-							const boundary = lower[match + marker.length]
-							if (boundary === '>' || (boundary !== undefined && /\s/.test(boundary))) {
-								unsafe = true
-								break
-							}
-							offset = match + marker.length
-						}
-						value = `<${name}${attributes}>${unsafe ? '' : body}</${name}>`
-						break
-					}
-					value = `<${name}${attributes}>${children.join('')}</${name}>`
-					break
-				}
-			}
+			const value = renderHTMLPart(current, children)
 			if (stack.length === 0) return value
 			values.push(value)
 		}
@@ -1142,7 +985,7 @@ export function renderText(node: HTMLNode): string {
 		const stack: Array<{
 			readonly node: HTMLNode
 			readonly depth: number
-			readonly leaving: boolean
+			readonly final: boolean
 			readonly parent: ElementNode | undefined
 			readonly table: ElementNode | undefined
 			readonly preserved: boolean
@@ -1150,7 +993,7 @@ export function renderText(node: HTMLNode): string {
 			{
 				node,
 				depth: -1,
-				leaving: false,
+				final: false,
 				parent: undefined,
 				table: undefined,
 				preserved: false,
@@ -1160,7 +1003,6 @@ export function renderText(node: HTMLNode): string {
 			readonly value: string
 			readonly mode: 'normal' | 'preserved' | 'cell' | 'row'
 		}> = []
-		let normal = ''
 		const visited = new WeakSet<object>()
 		const tables = new WeakSet<object>()
 		const rows = new WeakSet<object>()
@@ -1168,78 +1010,68 @@ export function renderText(node: HTMLNode): string {
 			const frame = stack.pop()
 			if (frame === undefined) continue
 			const current = frame.node
-			if (frame.leaving) {
+			if (frame.final) {
 				if (current.category === 'element') {
 					const name = current.name.toLowerCase()
 					const tableRole = name === 'tr' || TABLE_CELL_ELEMENTS.includes(name)
-					if (!tableRole && (BLOCK_ELEMENTS.includes(name) || name === 'br')) normal += '\n'
+					if (!tableRole && (BLOCK_ELEMENTS.includes(name) || name === 'br')) {
+						segments.push({ value: '\n', mode: 'normal' })
+					}
 				}
 				continue
 			}
 			if (visited.has(current)) continue
 			visited.add(current)
 			if (current.category === 'text') {
-				if (frame.preserved) {
-					if (normal !== '') segments.push({ value: normal, mode: 'normal' })
-					normal = ''
-					segments.push({ value: current.value, mode: 'preserved' })
-				} else {
-					normal += current.value.replace(/\s+/g, ' ')
+				const value = frame.preserved ? current.value : current.value.replace(/\s+/g, ' ')
+				if (frame.preserved || value !== '') {
+					segments.push({ value, mode: frame.preserved ? 'preserved' : 'normal' })
 				}
 				continue
 			}
 			if (current.category !== 'document' && current.category !== 'element') continue
-			let table = frame.table
-			let preserved = frame.preserved
-			let boundary = false
-			if (current.category === 'element') {
-				const name = current.name.toLowerCase()
-				if (RAW_ELEMENTS.includes(name)) continue
-				if (name === 'table') table = current
-				if (name === 'tr' && table !== undefined) {
-					if (tables.has(table)) {
-						if (normal !== '') segments.push({ value: normal, mode: 'normal' })
-						normal = ''
-						segments.push({ value: '\n', mode: 'row' })
-					} else {
-						tables.add(table)
-					}
-				}
-				if (
-					TABLE_CELL_ELEMENTS.includes(name) &&
-					frame.parent !== undefined &&
-					frame.parent.name.toLowerCase() === 'tr'
-				) {
-					if (rows.has(frame.parent)) {
-						if (normal !== '') segments.push({ value: normal, mode: 'normal' })
-						normal = ''
-						segments.push({ value: '\t', mode: 'cell' })
-					} else {
-						rows.add(frame.parent)
-					}
-				}
-				const tableRole = name === 'tr' || TABLE_CELL_ELEMENTS.includes(name)
-				boundary = !tableRole && (BLOCK_ELEMENTS.includes(name) || name === 'br')
-				preserved = preserved || name === 'pre'
+			const name = current.category === 'element' ? current.name.toLowerCase() : undefined
+			if (name !== undefined && RAW_ELEMENTS.includes(name)) continue
+			const table = current.category === 'element' && name === 'table' ? current : frame.table
+			const preserved = frame.preserved || name === 'pre'
+			if (name === 'tr' && table !== undefined) {
+				if (tables.has(table)) segments.push({ value: '\n', mode: 'row' })
+				else tables.add(table)
 			}
-			if (boundary) normal += '\n'
+			if (
+				name !== undefined &&
+				TABLE_CELL_ELEMENTS.includes(name) &&
+				frame.parent !== undefined &&
+				frame.parent.name.toLowerCase() === 'tr'
+			) {
+				if (rows.has(frame.parent)) segments.push({ value: '\t', mode: 'cell' })
+				else rows.add(frame.parent)
+			}
+			const boundary =
+				name !== undefined &&
+				name !== 'tr' &&
+				!TABLE_CELL_ELEMENTS.includes(name) &&
+				(BLOCK_ELEMENTS.includes(name) || name === 'br')
+			if (boundary) segments.push({ value: '\n', mode: 'normal' })
 			if (frame.depth >= MAX_DEPTH) continue
 			stack.push({
 				node: current,
 				depth: frame.depth,
-				leaving: true,
+				final: true,
 				parent: frame.parent,
 				table,
 				preserved: frame.preserved,
 			})
 			const depth = current.category === 'document' ? 0 : frame.depth + 1
-			for (let index = current.children.length - 1; index >= 0; index -= 1) {
+			const length = current.children.length
+			for (const offset of Array.from({ length }).keys()) {
+				const index = length - offset - 1
 				const child = current.children[index]
 				if (child !== undefined) {
 					stack.push({
 						node: child,
 						depth,
-						leaving: false,
+						final: false,
 						parent: current.category === 'element' ? current : undefined,
 						table,
 						preserved,
@@ -1247,30 +1079,38 @@ export function renderText(node: HTMLNode): string {
 				}
 			}
 		}
-		if (normal !== '') segments.push({ value: normal, mode: 'normal' })
-		let value = ''
-		for (let index = 0; index < segments.length; index += 1) {
-			const segment = segments[index]
-			if (segment === undefined) continue
-			if (segment.mode !== 'normal') {
-				value += segment.value
-				continue
-			}
-			let text = segment.value
-				.replace(/[ \t]*\n[ \t]*/g, '\n')
-				.replace(/\n+/g, '\n')
-				.replace(/ +/g, ' ')
-			const previous = segments[index - 1]
-			const next = segments[index + 1]
-			if (index === 0 || previous?.mode === 'cell' || previous?.mode === 'row') {
-				text = text.trimStart()
-			}
-			if (index === segments.length - 1 || next?.mode === 'cell' || next?.mode === 'row') {
-				text = text.trimEnd()
-			}
-			value += text
-		}
-		return value
+		const starts = segments.flatMap((segment, index) =>
+			segment.mode === 'normal' && segments[index - 1]?.mode === 'normal' ? [] : [index],
+		)
+		const grouped = starts.flatMap((start, index) => {
+			const first = segments[start]
+			if (first === undefined) return []
+			const value = segments
+				.slice(start, starts[index + 1])
+				.map((segment) => segment.value)
+				.join('')
+			return [{ value, mode: first.mode }]
+		})
+		return grouped
+			.map((segment, index) => {
+				if (segment.mode !== 'normal') return segment.value
+				const normalized = segment.value
+					.replace(/[ \t]*\n[ \t]*/g, '\n')
+					.replace(/\n+/g, '\n')
+					.replace(/ +/g, ' ')
+				const previous = grouped[index - 1]
+				const following = grouped[index + 1]
+				const text =
+					index === 0 || previous?.mode === 'cell' || previous?.mode === 'row'
+						? normalized.trimStart()
+						: normalized
+				return index === grouped.length - 1 ||
+					following?.mode === 'cell' ||
+					following?.mode === 'row'
+					? text.trimEnd()
+					: text
+			})
+			.join('')
 	})
 	return outcome.success ? outcome.value : ''
 }
@@ -1306,7 +1146,9 @@ export function* walkNodes(node: HTMLNode): Generator<HTMLNode> {
 				continue
 			}
 			const depth = frame.node.category === 'document' ? 0 : frame.depth + 1
-			for (let index = frame.node.children.length - 1; index >= 0; index -= 1) {
+			const length = frame.node.children.length
+			for (const offset of Array.from({ length }).keys()) {
+				const index = length - offset - 1
 				const child = frame.node.children[index]
 				if (child !== undefined) stack.push({ node: child, depth })
 			}
@@ -1345,16 +1187,18 @@ export function foldNode<T>(node: HTMLNode, handlers: HTMLHandlerMap<T>): T {
 				continue
 			}
 			visited.add(frame.node)
-			const children: HTMLNode[] = []
-			if (
+			const children =
 				frame.depth < MAX_DEPTH &&
 				(frame.node.category === 'document' || frame.node.category === 'element')
-			) {
-				for (const child of frame.node.children) if (child !== undefined) children.push(child)
-			}
+					? Iterator.from(frame.node.children)
+							.filter((child) => child !== undefined)
+							.toArray()
+					: []
 			stack.push({ ...frame, expanded: true, count: children.length })
 			const depth = frame.node.category === 'document' ? 0 : frame.depth + 1
-			for (let index = children.length - 1; index >= 0; index -= 1) {
+			const length = children.length
+			for (const offset of Array.from({ length }).keys()) {
+				const index = length - offset - 1
 				const child = children[index]
 				if (child !== undefined) {
 					stack.push({ node: child, depth, expanded: false, count: 0 })
@@ -1364,24 +1208,16 @@ export function foldNode<T>(node: HTMLNode, handlers: HTMLHandlerMap<T>): T {
 		}
 		const children =
 			frame.count === 0 ? [] : values.splice(values.length - frame.count, frame.count)
-		let value: T
-		switch (frame.node.category) {
-			case 'document':
-				value = handlers.document(frame.node, children)
-				break
-			case 'element':
-				value = handlers.element(frame.node, children)
-				break
-			case 'text':
-				value = handlers.text(frame.node, children)
-				break
-			case 'comment':
-				value = handlers.comment(frame.node, children)
-				break
-			case 'doctype':
-				value = handlers.doctype(frame.node, children)
-				break
-		}
+		const value =
+			frame.node.category === 'document'
+				? handlers.document(frame.node, children)
+				: frame.node.category === 'element'
+					? handlers.element(frame.node, children)
+					: frame.node.category === 'text'
+						? handlers.text(frame.node, children)
+						: frame.node.category === 'comment'
+							? handlers.comment(frame.node, children)
+							: handlers.doctype(frame.node, children)
 		if (stack.length === 0) return value
 		values.push(value)
 	}
@@ -1416,7 +1252,7 @@ export function rewriteDocument(
 	document: HTMLDocument,
 	rewrite: HTMLRewriteHandler,
 ): HTMLDerivation<HTMLDocument> {
-	const derivations = new Map<HTMLNode, HTMLNode | undefined>()
+	const origins: HTMLOrigin[] = []
 	const outputs = new Map<HTMLNode, HTMLNode>()
 	const outcome = attempt((): HTMLDerivation<HTMLDocument> => {
 		const stack: Array<{
@@ -1441,13 +1277,17 @@ export function rewriteDocument(
 					values.push(current)
 					continue
 				}
-				const children: HTMLNode[] = []
-				if (current.category === 'document' || current.category === 'element') {
-					for (const child of current.children) if (child !== undefined) children.push(child)
-				}
+				const children =
+					current.category === 'document' || current.category === 'element'
+						? Iterator.from(current.children)
+								.filter((child) => child !== undefined)
+								.toArray()
+						: []
 				stack.push({ ...frame, expanded: true, count: children.length })
 				const depth = current.category === 'document' ? 0 : frame.depth + 1
-				for (let index = children.length - 1; index >= 0; index -= 1) {
+				const length = children.length
+				for (const offset of Array.from({ length }).keys()) {
+					const index = length - offset - 1
 					const child = children[index]
 					if (child !== undefined) {
 						stack.push({ node: child, depth, expanded: false, count: 0 })
@@ -1457,39 +1297,27 @@ export function rewriteDocument(
 			}
 			const children =
 				frame.count === 0 ? [] : values.splice(values.length - frame.count, frame.count)
-			let candidate = current
-			if (current.category === 'document' || current.category === 'element') {
-				let changed = children.length !== current.children.length
-				if (!changed) {
-					for (const [index, child] of children.entries()) {
-						if (child !== current.children[index]) {
-							changed = true
-							break
-						}
-					}
-				}
-				if (changed) {
-					candidate =
-						current.category === 'document'
-							? { category: 'document', children }
-							: {
-									category: 'element',
-									name: current.name,
-									attributes: current.attributes,
-									children,
-								}
-					if (!derivations.has(candidate)) derivations.set(candidate, current)
-					else if (derivations.get(candidate) !== current) derivations.set(candidate, undefined)
-				}
-			}
+			const changed =
+				(current.category === 'document' || current.category === 'element') &&
+				(children.length !== current.children.length ||
+					children.some((child, index) => child !== current.children[index]))
+			const candidate: HTMLNode =
+				changed && current.category === 'document'
+					? { category: 'document', children }
+					: changed && current.category === 'element'
+						? {
+								category: 'element',
+								name: current.name,
+								attributes: current.attributes,
+								children,
+							}
+						: current
+			if (candidate !== current) origins.push([candidate, current])
 			const rewritten = rewrite(candidate)
 			const source = outputs.get(rewritten)
 			if (source === undefined) outputs.set(rewritten, current)
-			else if (source !== current) derivations.set(rewritten, undefined)
-			if (rewritten !== candidate) {
-				if (!derivations.has(rewritten)) derivations.set(rewritten, current)
-				else if (derivations.get(rewritten) !== current) derivations.set(rewritten, undefined)
-			}
+			else if (source !== current) origins.push([rewritten, undefined])
+			if (rewritten !== candidate) origins.push([rewritten, current])
 			if (stack.length === 0) {
 				return [
 					rewritten.category === 'document'
@@ -1497,12 +1325,12 @@ export function rewriteDocument(
 						: candidate.category === 'document'
 							? candidate
 							: document,
-					derivations,
+					resolveDerivations(origins),
 				]
 			}
 			values.push(rewritten)
 		}
-		return [document, derivations]
+		return [document, resolveDerivations(origins)]
 	})
 	return outcome.success ? outcome.value : [document, new Map()]
 }
@@ -1521,22 +1349,24 @@ export function rewriteDocument(
  */
 export function mergeText(children: readonly HTMLNode[]): readonly HTMLNode[] {
 	const outcome = attempt((): readonly HTMLNode[] => {
-		const merged: HTMLNode[] = []
-		for (const child of children) {
-			if (child === undefined) continue
-			if (child.category !== 'text') {
-				merged.push(child)
-				continue
+		const nodes = Iterator.from(children)
+			.filter(
+				(child) => child !== undefined && (child.category !== 'text' || child.value.length > 0),
+			)
+			.toArray()
+		const starts = nodes.flatMap((node, index) =>
+			node.category === 'text' && nodes[index - 1]?.category === 'text' ? [] : [index],
+		)
+		return starts.map((start, index): HTMLNode => {
+			const group = nodes.slice(start, starts[index + 1])
+			const first = group[0]
+			if (first === undefined) throw new Error('Missing sibling')
+			if (first.category !== 'text' || group.length === 1) return first
+			return {
+				category: 'text',
+				value: group.map((node) => (node.category === 'text' ? node.value : '')).join(''),
 			}
-			if (child.value.length === 0) continue
-			const previous = merged[merged.length - 1]
-			if (previous !== undefined && previous.category === 'text') {
-				merged[merged.length - 1] = { category: 'text', value: previous.value + child.value }
-				continue
-			}
-			merged.push(child)
-		}
-		return merged
+		})
 	})
 	return outcome.success ? outcome.value : children
 }
@@ -1554,20 +1384,19 @@ export function mergeText(children: readonly HTMLNode[]): readonly HTMLNode[] {
  * @returns The collapsed list and its operation-owned derivations
  */
 export function collapseText(children: readonly HTMLNode[]): HTMLDerivation<readonly HTMLNode[]> {
-	const derivations = new Map<HTMLNode, HTMLNode | undefined>()
 	const outcome = attempt((): HTMLDerivation<readonly HTMLNode[]> => {
-		const collapsed: HTMLNode[] = []
-		for (const child of children) {
-			if (child === undefined) continue
-			if (child.category !== 'text') {
-				collapsed.push(child)
-				continue
-			}
-			const text: TextNode = { category: 'text', value: child.value.replace(/\s+/g, ' ') }
-			collapsed.push(text)
-			derivations.set(text, child)
-		}
-		return [collapsed, derivations]
+		const entries = Iterator.from(children)
+			.filter((child) => child !== undefined)
+			.map((child): readonly [HTMLNode, HTMLNode | undefined] =>
+				child.category === 'text'
+					? [{ category: 'text', value: child.value.replace(/\s+/g, ' ') }, child]
+					: [child, undefined],
+			)
+			.toArray()
+		return [
+			entries.map(([node]) => node),
+			new Map(entries.filter(([, source]) => source !== undefined)),
+		]
 	})
 	return outcome.success ? outcome.value : [children, new Map()]
 }
@@ -1589,25 +1418,22 @@ export function extractRegion(
 	document: HTMLDocument,
 	names: readonly string[],
 ): HTMLDerivation<HTMLDocument> {
-	const derivations = new Map<HTMLNode, HTMLNode | undefined>()
 	const outcome = attempt((): HTMLDerivation<HTMLDocument> => {
 		for (const name of names) {
 			const expected = name.toLowerCase()
-			let region: ElementNode | undefined
-			let count = 0
-			for (const node of walkNodes(document)) {
-				if (node.category !== 'element' || node.name.toLowerCase() !== expected) continue
-				count += 1
-				if (count > 1) break
-				region = node
-			}
-			if (count === 1 && region !== undefined) {
+			const matches = walkNodes(document)
+				.filter((node): node is ElementNode => {
+					return node.category === 'element' && node.name.toLowerCase() === expected
+				})
+				.take(2)
+				.toArray()
+			const region = matches[0]
+			if (matches.length === 1 && region !== undefined) {
 				const rooted: HTMLDocument = { category: 'document', children: region.children }
-				derivations.set(rooted, region)
-				return [rooted, derivations]
+				return [rooted, new Map([[rooted, region]])]
 			}
 		}
-		return [document, derivations]
+		return [document, new Map()]
 	})
 	return outcome.success ? outcome.value : [document, new Map()]
 }
@@ -1637,7 +1463,7 @@ export function pruneDocument(
 	document: HTMLDocument,
 	prune: HTMLPruneHandler,
 ): HTMLDerivation<HTMLDocument> {
-	const derivations = new Map<HTMLNode, HTMLNode | undefined>()
+	const origins: HTMLOrigin[] = []
 	const outcome = attempt((): HTMLDerivation<HTMLDocument> => {
 		const stack: Array<{
 			readonly node: HTMLNode
@@ -1657,16 +1483,18 @@ export function pruneDocument(
 					continue
 				}
 				visited.add(current)
-				const children: HTMLNode[] = []
-				if (
+				const children =
 					frame.depth < MAX_DEPTH &&
 					(current.category === 'document' || current.category === 'element')
-				) {
-					for (const child of current.children) if (child !== undefined) children.push(child)
-				}
+						? Iterator.from(current.children)
+								.filter((child) => child !== undefined)
+								.toArray()
+						: []
 				stack.push({ ...frame, expanded: true, count: children.length })
 				const depth = current.category === 'document' ? 0 : frame.depth + 1
-				for (let index = children.length - 1; index >= 0; index -= 1) {
+				const length = children.length
+				for (const offset of Array.from({ length }).keys()) {
+					const index = length - offset - 1
 					const child = children[index]
 					if (child !== undefined) {
 						stack.push({ node: child, depth, expanded: false, count: 0 })
@@ -1676,33 +1504,25 @@ export function pruneDocument(
 			}
 			const pruned =
 				frame.count === 0 ? [] : results.splice(results.length - frame.count, frame.count)
-			const children: HTMLNode[] = []
-			for (const group of pruned) for (const child of group) children.push(child)
-			let candidate = current
-			if (current.category === 'document' || current.category === 'element') {
-				let changed = children.length !== current.children.length
-				if (!changed) {
-					for (const [index, child] of children.entries()) {
-						if (child !== current.children[index]) {
-							changed = true
-							break
-						}
-					}
-				}
-				if (changed) {
-					candidate =
-						current.category === 'document'
-							? { category: 'document', children }
-							: {
-									category: 'element',
-									name: current.name,
-									attributes: current.attributes,
-									children,
-								}
-					if (!derivations.has(candidate)) derivations.set(candidate, current)
-					else if (derivations.get(candidate) !== current) derivations.set(candidate, undefined)
-				}
-			}
+			const children = Iterator.from(pruned)
+				.flatMap((group) => Iterator.from(group))
+				.toArray()
+			const changed =
+				(current.category === 'document' || current.category === 'element') &&
+				(children.length !== current.children.length ||
+					children.some((child, index) => child !== current.children[index]))
+			const candidate: HTMLNode =
+				changed && current.category === 'document'
+					? { category: 'document', children }
+					: changed && current.category === 'element'
+						? {
+								category: 'element',
+								name: current.name,
+								attributes: current.attributes,
+								children,
+							}
+						: current
+			if (candidate !== current) origins.push([candidate, current])
 			const replacements = prune(candidate)
 			if (replacements.length === 1) {
 				const replacement = replacements[0]
@@ -1711,22 +1531,205 @@ export function pruneDocument(
 					(candidate.category === 'document' || candidate.category === 'element') &&
 					candidate.children.includes(replacement)
 				if (replacement !== undefined && replacement !== candidate && !child) {
-					if (!derivations.has(replacement)) derivations.set(replacement, current)
-					else if (derivations.get(replacement) !== current) {
-						derivations.set(replacement, undefined)
-					}
+					origins.push([replacement, current])
 				}
 			}
 			if (stack.length === 0) {
 				const root = replacements[0]
-				if (root !== undefined && root.category === 'document') return [root, derivations]
-				const rest: HTMLNode[] = []
-				for (const node of replacements) if (node.category !== 'document') rest.push(node)
-				return [{ category: 'document', children: rest }, derivations]
+				if (root !== undefined && root.category === 'document') {
+					return [root, resolveDerivations(origins)]
+				}
+				const rest = Iterator.from(replacements)
+					.filter((node) => node.category !== 'document')
+					.toArray()
+				return [{ category: 'document', children: rest }, resolveDerivations(origins)]
 			}
 			results.push(replacements)
 		}
-		return [{ category: 'document', children: [] }, derivations]
+		return [{ category: 'document', children: [] }, resolveDerivations(origins)]
 	})
 	return outcome.success ? outcome.value : [{ category: 'document', children: [] }, new Map()]
+}
+
+/**
+ * Finds the first refused index in a numeric span with logarithmically bounded recursion.
+ *
+ * @param start - The inclusive first index
+ * @param end - The exclusive limit
+ * @param accept - The predicate evaluated in ascending index order
+ * @returns The first refused index, or the boundary reached after accepting the span
+ *
+ * @example
+ * ```ts
+ * scanHTMLIndex(0, 4, (index) => index < 2) // 2
+ * ```
+ */
+export function scanHTMLIndex(
+	start: number,
+	end: number,
+	accept: (index: number) => boolean,
+): number {
+	if (!(start < end)) return start
+	if (end - start <= 1) return accept(start) ? start + 1 : start
+	const middle = start + Math.ceil((end - start) / 2)
+	const left = scanHTMLIndex(start, middle, accept)
+	return left < middle ? left : scanHTMLIndex(left, end, accept)
+}
+
+/**
+ * Scans one complete quoted or unquoted attribute value under the strict token grammar.
+ *
+ * @param html - The source token
+ * @param start - The value's first source offset, including its quote when quoted
+ * @returns The decoded value and next offset, or undefined for an invalid value or delimiter
+ *
+ * @example
+ * ```ts
+ * scanHTMLAttributeValue('"a&amp;b">', 0) // ['a&b', 9]
+ * ```
+ */
+export function scanHTMLAttributeValue(
+	html: string,
+	start: number,
+): HTMLAttributeValue | undefined {
+	const quote = html[start]
+	const quoted = quote === '"' || quote === "'"
+	const content = start + (quoted ? 1 : 0)
+	const end = scanHTMLIndex(content, html.length, (index) => {
+		const character = html[index]
+		if (character === undefined) return false
+		if (quoted ? character === quote : character === '>' || HTML_WHITESPACE.includes(character)) {
+			return false
+		}
+		if (!quoted && ['"', "'", '<', '=', '`'].includes(character)) return false
+		return (
+			isHTMLCodePoint(html.codePointAt(index)) ||
+			(index > content && (html.codePointAt(index - 1) ?? 0) > 0xffff)
+		)
+	})
+	if (end >= html.length) return undefined
+	if (quoted) {
+		if (html[end] !== quote) return undefined
+		const delimiter = html[end + 1]
+		if (
+			delimiter !== '>' &&
+			delimiter !== '/' &&
+			(delimiter === undefined || !HTML_WHITESPACE.includes(delimiter))
+		) {
+			return undefined
+		}
+		return [decodeEntities(html.slice(content, end)), end + 1]
+	}
+	const delimiter = html[end]
+	if (
+		end === content ||
+		(delimiter !== '>' && (delimiter === undefined || !HTML_WHITESPACE.includes(delimiter)))
+	) {
+		return undefined
+	}
+	return [decodeEntities(html.slice(content, end)), end]
+}
+
+/**
+ * Renders one HTML node from its already-rendered children.
+ *
+ * @param node - The node whose own markup to render
+ * @param children - The rendered child values
+ * @returns Canonical markup, with unsafe raw text and invalid leaf markup refused
+ *
+ * @example
+ * ```ts
+ * renderHTMLPart({ category: 'text', value: '<' }, []) // '&lt;'
+ * ```
+ */
+export function renderHTMLPart(node: HTMLNode, children: readonly string[]): string {
+	switch (node.category) {
+		case 'document':
+			return children.join('')
+		case 'text':
+			return encodeText(node.value)
+		case 'comment':
+			return node.value.includes('-->') ||
+				node.value.includes('--!>') ||
+				node.value.startsWith('>') ||
+				node.value.startsWith('->')
+				? ''
+				: `<!--${node.value}-->`
+		case 'doctype': {
+			const name = node.name.toLowerCase()
+			if (!/^[a-z][a-z0-9:-]*$/.test(name)) return ''
+			const publicSafe =
+				node.public !== undefined && (!node.public.includes('"') || !node.public.includes("'"))
+			const systemSafe =
+				node.system !== undefined && (!node.system.includes('"') || !node.system.includes("'"))
+			const identifiers: string[] = []
+			if (publicSafe && node.public !== undefined) {
+				const quote = node.public.includes('"') ? "'" : '"'
+				identifiers.push(` PUBLIC ${quote}${node.public}${quote}`)
+				if (systemSafe && node.system !== undefined) {
+					const systemQuote = node.system.includes('"') ? "'" : '"'
+					identifiers.push(` ${systemQuote}${node.system}${systemQuote}`)
+				}
+			} else if (systemSafe && node.system !== undefined) {
+				const quote = node.system.includes('"') ? "'" : '"'
+				identifiers.push(` SYSTEM ${quote}${node.system}${quote}`)
+			}
+			return `<!DOCTYPE ${name}${identifiers.join('')}>`
+		}
+		case 'element': {
+			const name = node.name.toLowerCase()
+			if (!/^[a-z][a-z0-9:-]*$/.test(name)) return children.join('')
+			const attributes = Iterator.from(node.attributes)
+				.map((attribute) => {
+					const key = attribute.name.toLowerCase()
+					if (key.length === 0 || /[\s=/"':<>]/.test(key)) return ''
+					return attribute.value === undefined
+						? ` ${key}`
+						: ` ${key}="${encodeAttribute(attribute.value)}"`
+				})
+				.toArray()
+				.join('')
+			if (VOID_ELEMENTS.includes(name)) return `<${name}${attributes}>`
+			if (RAW_ELEMENTS.includes(name)) {
+				const body = Iterator.from(node.children)
+					.filter((child): child is TextNode => child.category === 'text')
+					.map((child) => child.value)
+					.toArray()
+					.join('')
+				const lower = body.toLowerCase()
+				const marker = `</${name}`
+				const unsafe = Iterator.from(lower.matchAll(/</g)).some((match) => {
+					if (!lower.startsWith(marker, match.index)) return false
+					const boundary = lower[match.index + marker.length]
+					return boundary === '>' || (boundary !== undefined && /\s/.test(boundary))
+				})
+				return `<${name}${attributes}>${unsafe ? '' : body}</${name}>`
+			}
+			return `<${name}${attributes}>${children.join('')}</${name}>`
+		}
+	}
+}
+
+/**
+ * Resolves recorded source identities, refusing a node with conflicting origins.
+ *
+ * @param origins - Source records in operation order
+ * @returns Each derived node's sole source, or undefined for an ambiguous source
+ *
+ * @example
+ * ```ts
+ * const node: HTMLNode = { category: 'text', value: 'x' }
+ * resolveDerivations([[node, node]]).get(node) // node
+ * ```
+ */
+export function resolveDerivations(
+	origins: Iterable<HTMLOrigin>,
+): ReadonlyMap<HTMLNode, HTMLNode | undefined> {
+	const groups = Map.groupBy(origins, ([node]) => node)
+	return new Map(
+		Array.from(groups, ([node, records]) => {
+			const source = records[0]?.[1]
+			return [node, records.every(([, origin]) => origin === source) ? source : undefined]
+		}),
+	)
 }

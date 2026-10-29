@@ -114,12 +114,12 @@ export function isHTMLNode(value: unknown): value is HTMLNode {
 		const pending: Array<{
 			readonly value: unknown
 			readonly depth: number
-			readonly leaving: boolean
-		}> = [{ value, depth: 0, leaving: false }]
+			readonly final: boolean
+		}> = [{ value, depth: 0, final: false }]
 		while (pending.length > 0) {
 			const entry = pending.pop()
 			if (entry === undefined) continue
-			if (entry.leaving) {
+			if (entry.final) {
 				if (isObject(entry.value)) {
 					ancestors.delete(entry.value)
 				}
@@ -159,12 +159,13 @@ export function isHTMLNode(value: unknown): value is HTMLNode {
 				return false
 			}
 			ancestors.add(entry.value)
-			pending.push({ value: entry.value, depth: entry.depth, leaving: true })
-			for (let index = entry.value.children.length - 1; index >= 0; index -= 1) {
+			pending.push({ value: entry.value, depth: entry.depth, final: true })
+			const length = entry.value.children.length
+			for (const offset of Array.from({ length }).keys()) {
 				pending.push({
-					value: entry.value.children[index],
+					value: entry.value.children[length - offset - 1],
 					depth: entry.depth + 1,
-					leaving: false,
+					final: false,
 				})
 			}
 		}

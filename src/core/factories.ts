@@ -27,8 +27,10 @@ import { HTML } from './HTML.js'
  * page.find(isElementNode)?.name // 'h1' - narrowed to ElementNode by the guard overload
  * page.filter(isElementNode).map((element) => element.name) // ['h1', 'p', 'b']
  *
- * const categories: string[] = []
- * for (const node of page.walk()) categories.push(node.category)
+ * const categories = page
+ * 	.walk()
+ * 	.map((node) => node.category)
+ * 	.toArray()
  * // ['document', 'element', 'text', 'element', 'text', 'element', 'text', 'text']
  * ```
  */

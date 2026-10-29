@@ -23,7 +23,23 @@ const MODULES = Object.freeze({ '@orkestrel/html': 'src/core', '@src/core': 'src
  * intentional rather than forgotten — and the assertion that follows it fails when a name
  * here stops being stranded, so the list cannot rot.
  */
-const INTERNAL: readonly string[] = Object.freeze([])
+const INTERNAL: readonly string[] = Object.freeze(['class HTMLParse', 'class HTMLStream'])
+
+const ELEMENT_HANDLERS = Object.freeze<HTMLHandlerMap<number>>({
+	document: (_, children) => children.reduce((total, value) => total + value, 0),
+	element: (_, children) => 1 + children.reduce((total, value) => total + value, 0),
+	text: () => 0,
+	comment: () => 0,
+	doctype: () => 0,
+})
+
+const LEAF_HANDLERS = Object.freeze<HTMLHandlerMap<number>>({
+	document: (_, children) => children.reduce((total, value) => total + value, 0),
+	element: (_, children) => children.reduce((total, value) => total + value, 0),
+	text: () => 1,
+	comment: () => 1,
+	doctype: () => 1,
+})
 
 await new GuideCommand({
 	root: new URL('../', import.meta.url),
@@ -69,8 +85,10 @@ await new GuideCommand({
 		pruneDocument,
 		REGION_ELEMENTS,
 		renderHTML,
+		renderHTMLPart,
 		renderText,
 		resolveAttributes,
+		resolveDerivations,
 		resolveURL,
 		rewriteDocument,
 		SAFE_ATTRIBUTES,
@@ -81,6 +99,8 @@ await new GuideCommand({
 		scanAttributes,
 		scanComment,
 		scanDoctype,
+		scanHTMLAttributeValue,
+		scanHTMLIndex,
 		scanRawText,
 		scanTag,
 		walkNodes,
@@ -88,6 +108,15 @@ await new GuideCommand({
 	const { describe, expect, it } = await import('vitest')
 
 	const manifest = parseJSON(requireValue(files['package.json'], 'Missing file: package.json'))
+
+	it('executes the extracted scanner and renderer helper examples', () => {
+		expect(scanHTMLIndex(0, 4, (index) => index < 2)).toBe(2)
+		expect(scanHTMLAttributeValue('"a&amp;b">', 0)).toEqual(['a&b', 9])
+		expect(renderHTMLPart({ category: 'text', value: '<' }, [])).toBe('&lt;')
+		const node: HTMLNode = { category: 'text', value: 'x' }
+		expect(resolveDerivations([[node, node]]).get(node)).toBe(node)
+	})
+
 	const identity = requireValue(
 		Object.keys(MODULES).find((specifier) => !specifier.startsWith('@src/')),
 		'Missing package identity module',
@@ -210,8 +239,10 @@ await new GuideCommand({
 			expect(page.find(isElementNode)?.name).toBe('h1')
 			expect(page.filter(isElementNode).map((element) => element.name)).toEqual(['h1', 'p', 'b'])
 
-			const categories: string[] = []
-			for (const node of page.walk()) categories.push(node.category)
+			const categories = page
+				.walk()
+				.map((node) => node.category)
+				.toArray()
 			expect(categories).toEqual([
 				'document',
 				'element',
@@ -249,14 +280,7 @@ await new GuideCommand({
 				page.reduce((total, node) => (isTextNode(node) ? total + node.value.length : total), 0),
 			).toBe(17)
 
-			const elements: HTMLHandlerMap<number> = {
-				document: (_, children) => children.reduce((total, value) => total + value, 0),
-				element: (_, children) => 1 + children.reduce((total, value) => total + value, 0),
-				text: () => 0,
-				comment: () => 0,
-				doctype: () => 0,
-			}
-			expect(page.fold(elements)).toBe(3)
+			expect(page.fold(ELEMENT_HANDLERS)).toBe(3)
 		})
 
 		it("streams the root's direct children through a reader and an async iteration", async () => {
@@ -264,7 +288,9 @@ await new GuideCommand({
 
 			const read: string[] = []
 			const reader = page.stream().getReader()
-			for (let result = await reader.read(); !result.done; result = await reader.read()) {
+			for (;;) {
+				const result = await reader.read()
+				if (result.done) break
 				read.push(result.value.category)
 			}
 			expect(read).toEqual(['element', 'element', 'element'])
@@ -350,14 +376,7 @@ await new GuideCommand({
 				'comment',
 			])
 
-			const leaves: HTMLHandlerMap<number> = {
-				document: (_, children) => children.reduce((total, value) => total + value, 0),
-				element: (_, children) => children.reduce((total, value) => total + value, 0),
-				text: () => 1,
-				comment: () => 1,
-				doctype: () => 1,
-			}
-			expect(foldNode(region, leaves)).toBe(2)
+			expect(foldNode(region, LEAF_HANDLERS)).toBe(2)
 
 			const joined: readonly HTMLNode[] = mergeText([
 				{ category: 'text', value: 'a ' },
@@ -392,7 +411,7 @@ await new GuideCommand({
 					{ name: 'src', value: 'x.png' },
 					{ name: 'alt', value: 'hi' },
 				],
-				closing: false,
+				final: false,
 				next: 26,
 			})
 
@@ -571,7 +590,7 @@ await new GuideCommand({
 				'projectSpan([0, 1], 1, 2) // undefined - boundary 2 is uncovered',
 				"parseStartTag('<html lang=\"en\" data-bs-theme=\"light\">', 0)\n// { name: 'html', attributes: [{ name: 'lang', value: 'en' }, { name: 'data-bs-theme', value: 'light' }], slashed: false, next: 38 }",
 				"parseStartTag('<html data-note=\"unterminated>', 0) // undefined",
-				"scanTag('<IMG SRC=\"x.png\" alt=hi />', 0)\n// { name: 'img', attributes: [{ name: 'src', value: 'x.png' }, { name: 'alt', value: 'hi' }], closing: false, next: 26 }",
+				"scanTag('<IMG SRC=\"x.png\" alt=hi />', 0)\n// { name: 'img', attributes: [{ name: 'src', value: 'x.png' }, { name: 'alt', value: 'hi' }], final: false, next: 26 }",
 				"scanAttributes(' HREF=\"/a\" disabled href=\"/b\"')\n// [{ name: 'href', value: '/a' }, { name: 'disabled' }] - lowercased, first wins, valueless stays valueless",
 				"scanComment('<![CDATA[x]]>', 0) // { node: { category: 'comment', value: '[CDATA[x]]' }, next: 13 }",
 				"scanDoctype('<!DOCTYPE html>', 0) // { node: { category: 'doctype', name: 'html' }, next: 15 }",

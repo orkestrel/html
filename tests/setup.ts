@@ -192,22 +192,17 @@ export function buildHTMLRoundtripCorpus(): readonly HTMLDocument[] {
  */
 export function buildHTMLCommentEnumeration(): readonly string[] {
 	const alphabet = ['<', '!', '-', '>', 'x']
-	const suffixes = ['']
-	let start = 0
-	for (let depth = 0; depth < 6; depth += 1) {
-		const end = suffixes.length
-		for (let index = start; index < end; index += 1) {
-			const suffix = suffixes[index]
-			if (suffix === undefined) continue
-			for (const character of alphabet) suffixes.push(suffix + character)
+	const suffixes = [{ value: '', depth: 0 }]
+	for (const suffix of suffixes) {
+		if (suffix.depth >= 6) continue
+		for (const character of alphabet) {
+			suffixes.push({ value: suffix.value + character, depth: suffix.depth + 1 })
 		}
-		start = end
 	}
-	const sources = new Set<string>()
-	for (const prefix of ['<!--', '<!', '<?']) {
-		for (const suffix of suffixes) sources.add(prefix + suffix)
-	}
-	return [...sources]
+	const sources = ['<!--', '<!', '<?'].flatMap((prefix) =>
+		suffixes.map((suffix) => prefix + suffix.value),
+	)
+	return [...new Set(sources)]
 }
 
 /**
@@ -683,10 +678,10 @@ export const URL_SAFETY_GROUPS: readonly string[] = Object.freeze([
  * @returns A deep document ending in one text node
  */
 export function buildDeepHTMLDocument(depth: number): HTMLDocument {
-	let node: HTMLNode = { category: 'text', value: 'leaf' }
-	for (let index = 0; index < depth; index += 1) {
-		node = { category: 'element', name: 'div', attributes: [], children: [node] }
-	}
+	const node = Array.from({ length: Math.max(0, Math.ceil(depth)) }).reduce<HTMLNode>(
+		(child) => ({ category: 'element', name: 'div', attributes: [], children: [child] }),
+		{ category: 'text', value: 'leaf' },
+	)
 	return { category: 'document', children: [node] }
 }
 
@@ -710,10 +705,10 @@ export function buildBranchingHTMLElement(name: string): ElementNode {
  * @returns A document whose path count is exponential but whose node count is linear
  */
 export function buildDiamondHTMLDocument(depth: number): HTMLDocument {
-	let node: HTMLNode = { category: 'text', value: 'leaf' }
-	for (let index = 0; index < depth; index += 1) {
-		node = { category: 'element', name: 'span', attributes: [], children: [node, node] }
-	}
+	const node = Array.from({ length: Math.max(0, Math.ceil(depth)) }).reduce<HTMLNode>(
+		(child) => ({ category: 'element', name: 'span', attributes: [], children: [child, child] }),
+		{ category: 'text', value: 'leaf' },
+	)
 	return { category: 'document', children: [node] }
 }
 
@@ -724,20 +719,23 @@ export function buildDiamondHTMLDocument(depth: number): HTMLDocument {
  * @returns A linear-size graph that exposes repeated nested fallback walks
  */
 export function buildSharedHTMLPreDocument(count: number): HTMLDocument {
-	const comments: HTMLNode[] = []
-	for (let index = 0; index < count; index += 1) {
-		comments.push({ category: 'comment', value: `comment-${index}` })
-	}
+	const length = Math.max(0, Math.ceil(count))
+	const comments: HTMLNode[] = Array.from({ length }, (_, index) => ({
+		category: 'comment',
+		value: `comment-${index}`,
+	}))
 	const shared: ElementNode = {
 		category: 'element',
 		name: 'span',
 		attributes: [],
 		children: comments,
 	}
-	const children: HTMLNode[] = []
-	for (let index = 0; index < count; index += 1) {
-		children.push({ category: 'element', name: 'pre', attributes: [], children: [shared] })
-	}
+	const children: HTMLNode[] = Array.from({ length }, () => ({
+		category: 'element',
+		name: 'pre',
+		attributes: [],
+		children: [shared],
+	}))
 	return { category: 'document', children }
 }
 
@@ -773,10 +771,10 @@ export function buildMixedHTMLInput(count: number): string {
  * @returns A document-shaped unknown value
  */
 export function buildDeepHTMLNode(depth: number): unknown {
-	let node: unknown = { category: 'text', value: 'leaf' }
-	for (let index = 0; index < depth; index += 1) {
-		node = { category: 'element', name: 'div', attributes: [], children: [node] }
-	}
+	const node = Array.from({ length: Math.max(0, Math.ceil(depth)) }).reduce<unknown>(
+		(child) => ({ category: 'element', name: 'div', attributes: [], children: [child] }),
+		{ category: 'text', value: 'leaf' },
+	)
 	return { category: 'document', children: [node] }
 }
 
@@ -848,21 +846,22 @@ export function buildHostileHTMLPrototype(): object {
  */
 export function extractHTMLText(document: HTMLDocument): string {
 	const pending: HTMLNode[] = [...document.children].reverse()
-	let text = ''
+	const text: string[] = []
 	while (pending.length > 0) {
 		const node = pending.pop()
 		if (node === undefined) continue
 		if (node.category === 'text') {
-			text += node.value
+			text.push(node.value)
 			continue
 		}
 		if (node.category !== 'document' && node.category !== 'element') continue
-		for (let index = node.children.length - 1; index >= 0; index -= 1) {
-			const child = node.children[index]
+		const length = node.children.length
+		for (const offset of Array.from({ length }).keys()) {
+			const child = node.children[length - offset - 1]
 			if (child !== undefined) pending.push(child)
 		}
 	}
-	return text
+	return text.join('')
 }
 
 /**
@@ -878,12 +877,15 @@ export function hasAdjacentHTMLText(document: HTMLDocument): boolean {
 		if (node === undefined || (node.category !== 'document' && node.category !== 'element')) {
 			continue
 		}
-		let previous = false
-		for (const child of node.children) {
-			if (previous && child.category === 'text') return true
-			previous = child.category === 'text'
+		const siblings = Iterator.from(node.children).reduce<readonly HTMLNode[]>((previous, child) => {
+			if (previous.length > 1) return previous
+			if (previous[0]?.category === 'text' && child.category === 'text') {
+				return [previous[0], child]
+			}
 			pending.push(child)
-		}
+			return [child]
+		}, [])
+		if (siblings.length > 1) return true
 	}
 	return false
 }
@@ -897,14 +899,14 @@ export function hasAdjacentHTMLText(document: HTMLDocument): boolean {
 export function measureHTMLDepth(document: HTMLDocument): number {
 	const pending: Array<{ readonly node: HTMLNode; readonly depth: number }> = []
 	for (const child of document.children) pending.push({ node: child, depth: 0 })
-	let maximum = 0
+	const depths: number[] = []
 	while (pending.length > 0) {
 		const entry = pending.pop()
 		if (entry === undefined) continue
 		const depth = entry.node.category === 'element' ? entry.depth + 1 : entry.depth
-		if (depth > maximum) maximum = depth
+		depths.push(depth)
 		if (entry.node.category !== 'document' && entry.node.category !== 'element') continue
 		for (const child of entry.node.children) pending.push({ node: child, depth })
 	}
-	return maximum
+	return depths.reduce((maximum, depth) => Math.max(maximum, depth), 0)
 }

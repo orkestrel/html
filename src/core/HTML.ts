@@ -6,6 +6,7 @@ import type {
 	HTMLHandlerMap,
 	HTMLInterface,
 	HTMLNode,
+	HTMLOrigin,
 	HTMLRewriteHandler,
 	HTMLSanitizeOptions,
 	HTMLSpan,
@@ -30,12 +31,14 @@ import {
 	mergeText,
 	pruneDocument,
 	resolveAttributes,
+	resolveDerivations,
 	renderHTML,
 	rewriteDocument,
 	sanitizeAttributes,
 	walkNodes,
 } from './helpers.js'
 import { parseDocument, parseProvenance } from './parsers.js'
+import { HTMLStream } from './HTMLStream.js'
 
 /**
  * Represents a parsed document - the typed {@link HTMLDocument} AST plus the query
@@ -132,9 +135,9 @@ export class HTML implements HTMLInterface {
 	// Collects every node (depth-first, pre-order) matching a predicate.
 	filter(predicate: (node: HTMLNode) => boolean): readonly HTMLNode[]
 	filter(predicate: (node: HTMLNode) => boolean): readonly HTMLNode[] {
-		const found: HTMLNode[] = []
-		for (const node of this.walk()) if (predicate(node)) found.push(node)
-		return found
+		return this.walk()
+			.filter((node) => predicate(node))
+			.toArray()
 	}
 
 	/**
@@ -158,9 +161,7 @@ export class HTML implements HTMLInterface {
 	 * @returns The final accumulated value
 	 */
 	reduce<T>(callback: (value: T, node: HTMLNode) => T, initial: T): T {
-		let value = initial
-		for (const node of this.walk()) value = callback(value, node)
-		return value
+		return this.walk().reduce((value, node) => callback(value, node), initial)
 	}
 
 	/**
@@ -186,7 +187,9 @@ export class HTML implements HTMLInterface {
 	 * ```ts
 	 * // universal - works in every ReadableStream-supporting environment
 	 * const reader = page.stream().getReader()
-	 * for (let result = await reader.read(); !result.done; result = await reader.read()) {
+	 * for (;;) {
+	 *   const result = await reader.read()
+	 *   if (result.done) break
 	 *   result.value // one top-level HTMLNode
 	 * }
 	 *
@@ -196,19 +199,7 @@ export class HTML implements HTMLInterface {
 	 * ```
 	 */
 	stream(): ReadableStream<HTMLNode> {
-		const children = this.#document.children
-		let index = 0
-		return new ReadableStream<HTMLNode>({
-			pull(controller) {
-				const node = children[index]
-				if (node === undefined) {
-					controller.close()
-					return
-				}
-				controller.enqueue(node)
-				index += 1
-			},
-		})
+		return new HTMLStream(this.#document.children).result
 	}
 
 	/**
@@ -289,17 +280,13 @@ export class HTML implements HTMLInterface {
 			const clean = visible.sanitize()
 			const [rootedDocument, regionDerivations] = extractRegion(clean.document, REGION_ELEMENTS)
 			const rooted = clean.#derive(rootedDocument, regionDerivations)
-			const nestedDerivations = new Map<HTMLNode, HTMLNode | undefined>()
+			const origins: HTMLOrigin[] = []
 			const [contentDocument, contentDerivations] = pruneDocument(rooted.document, (node) => {
 				const [replacements, derivations] = this.#keepContent(node, elements, base)
-				for (const [derived, source] of derivations) nestedDerivations.set(derived, source)
+				for (const origin of derivations) origins.push(origin)
 				return replacements
 			})
-			const derivations = new Map(contentDerivations)
-			for (const [derived, source] of nestedDerivations) {
-				if (!derivations.has(derived)) derivations.set(derived, source)
-				else if (derivations.get(derived) !== source) derivations.set(derived, undefined)
-			}
+			const derivations = resolveDerivations([...contentDerivations, ...new Map(origins)])
 			return rooted.#derive(contentDocument, derivations)
 		})
 		return outcome.success ? outcome.value : new HTML({ category: 'document', children: [] })
@@ -313,21 +300,23 @@ export class HTML implements HTMLInterface {
 	// rather than following its unrelated output entry onto a foreign one.
 	#derive(document: HTMLDocument, derivations: ReadonlyMap<HTMLNode, HTMLNode | undefined>): HTML {
 		const derived = new HTML(document)
-		const visited = new Set<HTMLNode>()
 		for (const node of walkNodes(document)) {
-			visited.clear()
-			let source: HTMLNode | undefined = derivations.has(node) ? derivations.get(node) : node
-			while (source !== undefined && !visited.has(source)) {
-				visited.add(source)
-				const span = this.#spans.get(source)
-				if (span !== undefined) {
-					derived.#spans.set(node, span)
-					break
-				}
-				source = derivations.get(source)
-			}
+			const source = derivations.has(node) ? derivations.get(node) : node
+			const span = this.#traceSpan(source, derivations, new Set())
+			if (span !== undefined) derived.#spans.set(node, span)
 		}
 		return derived
+	}
+
+	#traceSpan(
+		source: HTMLNode | undefined,
+		derivations: ReadonlyMap<HTMLNode, HTMLNode | undefined>,
+		visited: Set<HTMLNode>,
+	): HTMLSpan | undefined {
+		if (source === undefined || visited.has(source)) return undefined
+		visited.add(source)
+		const span = this.#spans.get(source)
+		return span ?? this.#traceSpan(derivations.get(source), derivations, visited)
 	}
 
 	// The sanitize policy for one node, applied bottom-up by `pruneDocument`, which hands the

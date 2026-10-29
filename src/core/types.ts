@@ -66,7 +66,7 @@ export interface HTMLTag {
 	/** Holds the start tag's attributes; always empty for a close tag. */
 	readonly attributes: readonly HTMLAttribute[]
 	/** Indicates whether the source token is a close tag. */
-	readonly closing: boolean
+	readonly final: boolean
 	/** Holds the exclusive UTF-16 source offset immediately after the recovered tag boundary. */
 	readonly next: number
 }
@@ -189,6 +189,12 @@ export interface HTMLSpan {
  * become one newline, and `U+0000` becomes `U+FFFD`.
  */
 export type HTMLSource = readonly [source: string, offsets: readonly number[]]
+
+/** Carries one decoded attribute value and its exclusive source boundary. */
+export type HTMLAttributeValue = readonly [value: string, next: number]
+
+/** Carries one derived node and its recorded source identity. */
+export type HTMLOrigin = readonly [node: HTMLNode, source: HTMLNode | undefined]
 
 /**
  * Describes one open element occurrence located across the parser's represented and

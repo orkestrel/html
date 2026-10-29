@@ -1,4 +1,4 @@
-import type { ElementNode, HTMLDocument } from '@src/core'
+import type { ElementNode } from '@src/core'
 import {
 	MAX_DEPTH,
 	isHTMLDocument,
@@ -7,7 +7,8 @@ import {
 	renderHTML,
 	walkNodes,
 } from '@src/core'
-import { bench, describe, expect, it } from 'vitest'
+import { attempt } from '@orkestrel/contract'
+import { describe, expect, it } from 'vitest'
 import {
 	buildDeepHTMLInput,
 	buildHTMLAttributeInput,
@@ -408,11 +409,9 @@ describe('parseDocument hostile corpus totality', () => {
 
 	for (const source of cases) {
 		it(`never throws for ${JSON.stringify(source.slice(0, 32))}`, () => {
-			let document: HTMLDocument | undefined
-			expect(() => {
-				document = parseDocument(source)
-			}).not.toThrow()
-			expect(document === undefined ? false : isHTMLDocument(document)).toBe(true)
+			const outcome = attempt(() => parseDocument(source))
+			expect(outcome.success).toBe(true)
+			expect(outcome.success && isHTMLDocument(outcome.value)).toBe(true)
 		})
 	}
 
@@ -422,11 +421,9 @@ describe('parseDocument hostile corpus totality', () => {
 
 	it('handles a 100,000-tag flood without throwing and returns a guard-valid document', () => {
 		const source = '<div>'.repeat(100_000)
-		let document: HTMLDocument | undefined
-		expect(() => {
-			document = parseDocument(source)
-		}).not.toThrow()
-		expect(document === undefined ? false : isHTMLDocument(document)).toBe(true)
+		const outcome = attempt(() => parseDocument(source))
+		expect(outcome.success).toBe(true)
+		expect(outcome.success && isHTMLDocument(outcome.value)).toBe(true)
 	})
 
 	it('handles 100,000 stray close tags and retains following text', () => {
@@ -506,47 +503,3 @@ describe('parseDocument parse and guard soundness', () => {
 		expect(extractHTMLText(parseDocument(source))).toBe('onetwothreefour')
 	})
 })
-
-// How parse cost moves as each hostile input doubles. The preceding suite proves what the parse
-// returns; these report what it costs and assert nothing, so only `npm run test:bench` collects
-// them and no gate reads them. Each pair is the input pair the deleted wall-clock ratio
-// assertions used.
-if (import.meta.env.MODE === 'benchmark') {
-	const rawElements = '<script></script>'.repeat(15_000)
-	const closeSoupSmall = `${'<x>'.repeat(12_000)}${'</y>'.repeat(12_000)}`
-	const closeSoupLarge = `${'<x>'.repeat(24_000)}${'</y>'.repeat(24_000)}`
-	const strayCloseSmall = `${'<x>'.repeat(MAX_DEPTH)}${'</y>'.repeat(50_000)}`
-	const strayCloseLarge = `${'<x>'.repeat(MAX_DEPTH)}${'</y>'.repeat(100_000)}`
-	const attributesSmall = buildHTMLAttributeInput(96_000)
-	const attributesLarge = buildHTMLAttributeInput(192_000)
-	const mixedSmall = buildMixedHTMLInput(10_000)
-	const mixedLarge = buildMixedHTMLInput(20_000)
-
-	bench('parseDocument — 15,000 repeated raw elements', () => {
-		parseDocument(rawElements)
-	})
-	bench('parseDocument — 12,000 opens then 12,000 unmatched closes', () => {
-		parseDocument(closeSoupSmall)
-	})
-	bench('parseDocument — 24,000 opens then 24,000 unmatched closes', () => {
-		parseDocument(closeSoupLarge)
-	})
-	bench('parseDocument — 50,000 unmatched closes against a full stack', () => {
-		parseDocument(strayCloseSmall)
-	})
-	bench('parseDocument — 100,000 unmatched closes against a full stack', () => {
-		parseDocument(strayCloseLarge)
-	})
-	bench('parseDocument — 96,000 duplicate quoted attributes', () => {
-		parseDocument(attributesSmall)
-	})
-	bench('parseDocument — 192,000 duplicate quoted attributes', () => {
-		parseDocument(attributesLarge)
-	})
-	bench('parseDocument — mixed pressure at 10,000 per family', () => {
-		parseDocument(mixedSmall)
-	})
-	bench('parseDocument — mixed pressure at 20,000 per family', () => {
-		parseDocument(mixedLarge)
-	})
-}

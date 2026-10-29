@@ -46,6 +46,22 @@ import {
 // the two document-shaping engines. Parser recovery and renderer output have their own
 // mirrored suites (parsers.test.ts / helpers.test.ts); the parses here are vehicles.
 
+const COUNT_HANDLERS = Object.freeze<HTMLHandlerMap<number>>({
+	document: (_node, children) => 1 + children.reduce((total, count) => total + count, 0),
+	element: (_node, children) => 1 + children.reduce((total, count) => total + count, 0),
+	text: () => 1,
+	comment: () => 1,
+	doctype: () => 1,
+})
+
+const RENDER_HANDLERS = Object.freeze<HTMLHandlerMap<string>>({
+	document: (_node, children) => children.join(''),
+	element: (node, children) => `<${node.name}>${children.join('')}</${node.name}>`,
+	text: (node) => node.value,
+	comment: () => '',
+	doctype: () => '',
+})
+
 describe('HTML - construction', () => {
 	it('parses an HTML string into the document tree', () => {
 		const page = new HTML('<h1>Title</h1><p>Body</p>')
@@ -373,31 +389,16 @@ describe('HTML - reduce', () => {
 })
 
 describe('HTML - fold', () => {
-	const counted: HTMLHandlerMap<number> = {
-		document: (_node, children) => 1 + children.reduce((total, count) => total + count, 0),
-		element: (_node, children) => 1 + children.reduce((total, count) => total + count, 0),
-		text: () => 1,
-		comment: () => 1,
-		doctype: () => 1,
-	}
-
 	it('is total over every category and agrees with reduce', () => {
 		const page = new HTML('<!DOCTYPE html><p>x</p><!--note-->')
 		const categories = new Set(page.reduce<string[]>((seen, node) => [...seen, node.category], []))
 		expect([...categories].sort()).toEqual(['comment', 'doctype', 'document', 'element', 'text'])
-		expect(page.fold(counted)).toBe(page.reduce((count) => count + 1, 0))
+		expect(page.fold(COUNT_HANDLERS)).toBe(page.reduce((count) => count + 1, 0))
 	})
 
 	it('folds children before their parent, so a table can rebuild a rendering', () => {
 		const page = new HTML('<h1>Hi <em>there</em></h1>')
-		const rendered: HTMLHandlerMap<string> = {
-			document: (_node, children) => children.join(''),
-			element: (node, children) => `<${node.name}>${children.join('')}</${node.name}>`,
-			text: (node) => node.value,
-			comment: () => '',
-			doctype: () => '',
-		}
-		expect(page.fold(rendered)).toBe('<h1>Hi <em>there</em></h1>')
+		expect(page.fold(RENDER_HANDLERS)).toBe('<h1>Hi <em>there</em></h1>')
 	})
 
 	it('hands the innermost handler an empty child list at the depth cap', () => {
@@ -484,11 +485,7 @@ describe('HTML - stream', () => {
 				controller.enqueue(node.category === 'element' ? node.name : node.category)
 			},
 		})
-		const reader = page.stream().pipeThrough(names).getReader()
-		const collected: string[] = []
-		for (let result = await reader.read(); !result.done; result = await reader.read()) {
-			collected.push(result.value)
-		}
+		const collected = await collectStream(page.stream().pipeThrough(names))
 		expect(collected).toEqual(['h1', 'p'])
 	})
 })
@@ -806,11 +803,11 @@ describe('HTML - sanitize floor', () => {
 			children: [{ category: 'text', value: 'alert(1)' }],
 		}
 		const document: HTMLDocument = { category: 'document', children: [script] }
-		let reads = 0
+		const failures = [new Error('hostile children')].values()
 		Object.defineProperty(document, 'children', {
 			get() {
-				reads += 1
-				if (reads === 1) throw new Error('hostile children')
+				const failure = failures.next().value
+				if (failure !== undefined) throw failure
 				return [script]
 			},
 		})

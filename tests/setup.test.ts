@@ -177,21 +177,19 @@ describe('setup - HTML source builders', () => {
 
 	it('enumerates every bounded comment source over every introducer exactly once', () => {
 		const alphabet = ['<', '!', '-', '>', 'x']
-		const expected = new Set<string>()
-		for (const prefix of ['<!--', '<!', '<?']) {
-			for (let length = 0; length <= 6; length += 1) {
-				for (let index = 0; index < alphabet.length ** length; index += 1) {
-					let suffix = ''
-					let remainder = index
-					for (let position = 0; position < length; position += 1) {
-						const character = alphabet[remainder % alphabet.length]
-						if (character !== undefined) suffix = character + suffix
-						remainder = Math.floor(remainder / alphabet.length)
-					}
-					expected.add(prefix + suffix)
-				}
-			}
-		}
+		const expected = new Set(
+			['<!--', '<!', '<?'].flatMap((prefix) =>
+				Array.from({ length: 7 }).flatMap((_length, length) =>
+					Array.from({ length: alphabet.length ** length }, (_index, index) => {
+						const suffix = Array.from({ length }, (_position, position) => {
+							const divisor = alphabet.length ** (length - position - 1)
+							return alphabet[Math.floor(index / divisor) % alphabet.length] ?? ''
+						}).join('')
+						return prefix + suffix
+					}),
+				),
+			),
+		)
 		const sources = buildHTMLCommentEnumeration()
 		expect(new Set(sources).size).toBe(sources.length)
 		expect(new Set(sources)).toEqual(expected)
@@ -200,10 +198,9 @@ describe('setup - HTML source builders', () => {
 	it('parses every roundtrip source into a document spanning the recovery families', () => {
 		const corpus = buildHTMLRoundtripCorpus()
 		const categories = new Set<string>()
-		let empty = 0
+		const empty = corpus.filter((document) => document.children.length === 0).length
 		for (const document of corpus) {
 			expect(document.category).toBe('document')
-			if (document.children.length === 0) empty += 1
 			const pending: HTMLNode[] = [...document.children]
 			while (pending.length > 0) {
 				const node = pending.pop()
@@ -313,23 +310,27 @@ describe('setup - adversarial corpora', () => {
 	it('encodes every banned scheme as a direct, numeric, hexadecimal, and doubled form', () => {
 		const shapes = new Map<string, Set<string>>()
 		for (const value of buildEncodedHTMLSchemeCorpus()) {
-			let decoded = value
-			for (let pass = 0; pass < 4; pass += 1) {
-				decoded = decoded
-					.replace(/&#x([0-9a-fA-F]+);/g, (_match: string, hex: string) =>
-						String.fromCodePoint(Number.parseInt(hex, 16)),
-					)
-					.replace(/&#(\d+);/g, (_match: string, digits: string) =>
-						String.fromCodePoint(Number.parseInt(digits, 10)),
-					)
-					.replaceAll('&amp;', '&')
-			}
+			const decoded = Array.from({ length: 4 }).reduce<string>(
+				(current) =>
+					current
+						.replace(/&#x([0-9a-fA-F]+);/g, (_match: string, hex: string) =>
+							String.fromCodePoint(Number.parseInt(hex, 16)),
+						)
+						.replace(/&#(\d+);/g, (_match: string, digits: string) =>
+							String.fromCodePoint(Number.parseInt(digits, 10)),
+						)
+						.replaceAll('&amp;', '&'),
+				value,
+			)
 			expect(decoded.endsWith(':payload')).toBe(true)
 			const scheme = decoded.slice(0, decoded.indexOf(':'))
-			let shape = 'direct'
-			if (value.startsWith('&amp;')) shape = 'doubled'
-			else if (value.startsWith('&#x')) shape = 'hexadecimal'
-			else if (value.startsWith('&#')) shape = 'numeric'
+			const shape = value.startsWith('&amp;')
+				? 'doubled'
+				: value.startsWith('&#x')
+					? 'hexadecimal'
+					: value.startsWith('&#')
+						? 'numeric'
+						: 'direct'
 			const shapesForScheme = shapes.get(scheme) ?? new Set<string>()
 			shapesForScheme.add(shape)
 			shapes.set(scheme, shapesForScheme)
