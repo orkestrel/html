@@ -2,6 +2,16 @@ import type { ElementNode, HTMLDocument, HTMLNode } from '@src/core'
 import { MAX_DEPTH, parseDocument } from '@src/core'
 import WHATWG_ENTITIES from './src/core/fixtures/entities.json' with { type: 'json' }
 
+/** Counts a node together with its accumulated child counts. */
+export function countHTMLChildren(_node: HTMLNode, children: readonly number[]): number {
+	return 1 + children.reduce((total, count) => total + count, 0)
+}
+
+/** Counts a leaf as one node. */
+export function countHTMLLeaf(): number {
+	return 1
+}
+
 // Fetched from https://html.spec.whatwg.org/entities.json on 2026-08-24. The repository
 // formatter reshaped the file's whitespace after the fetch; the parsed entries are the fetched
 // ones unchanged.

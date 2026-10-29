@@ -57,16 +57,10 @@ import {
 	buildHTMLRoundtripCorpus,
 	buildSharedHTMLPreDocument,
 	buildURLSafetyCorpus,
+	countHTMLChildren,
+	countHTMLLeaf,
 	hasAdjacentHTMLText,
 } from '../../setup.js'
-
-function countHTMLChildren(_node: HTMLNode, children: readonly number[]): number {
-	return 1 + children.reduce((total, count) => total + count, 0)
-}
-
-function countHTMLLeaf(): number {
-	return 1
-}
 
 describe('HTML escaping and URL helpers', () => {
 	it('resolveDerivations keeps one source and refuses conflicting identities', () => {
