@@ -639,7 +639,7 @@ export function scanRawText(
 		const start = Math.max(0, Math.trunc(offset))
 		for (const match of html.slice(start).matchAll(/</g)) {
 			const candidate = start + match.index
-			const next = attempts.at(-1)?.next ?? offset
+			const next = attempts.at(-1)?.next ?? start
 			if (candidate < next) continue
 			if (lowercaseASCII(html.slice(candidate, candidate + marker.length)) !== marker) {
 				attempts.push({ next: candidate + 1, span: undefined })

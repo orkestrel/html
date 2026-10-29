@@ -555,6 +555,15 @@ describe('scanning pieces', () => {
 		const recovered = scanRawText('a</script <fake>>tail', 0, 'script')
 		expect(recovered.span).toEqual({ start: 0, end: 1 })
 	})
+
+	it('scanRawText truncates the scan offset while preserving the source span', () => {
+		expect(scanRawText('</script>', 0.5, 'script')).toEqual({
+			node: { category: 'text', value: '' },
+			span: { start: 0.5, end: 0 },
+			next: 9,
+			closed: true,
+		})
+	})
 })
 
 describe('strict start tag parsing', () => {
