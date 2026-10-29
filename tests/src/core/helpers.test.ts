@@ -449,6 +449,26 @@ describe('scanning pieces', () => {
 		expect(scanAttributes(' title="unterminated')).toEqual([{ name: 'title' }])
 	})
 
+	it('scanAttributes keeps first values and order for duplicates after many distinct names', () => {
+		// Base: e8376bf:src/core/helpers.ts:296 preserves the first occurrence in source order.
+		const distinct = Array.from({ length: 10_000 }, (_, index) => ({
+			name: `data-${index}`,
+			value: `${index}`,
+		}))
+		const source = distinct.map(({ name, value }) => `${name}=${value}`).join(' ')
+
+		expect(
+			scanAttributes(
+				`DISABLED empty="" ${source} disabled=changed EMPTY=changed DATA-0=changed DATA-9999=changed title=last`,
+			),
+		).toEqual([
+			{ name: 'disabled' },
+			{ name: 'empty', value: '' },
+			...distinct,
+			{ name: 'title', value: 'last' },
+		])
+	})
+
 	it('scanTag scans lowercased start and close tags and rejects incomplete tags', () => {
 		expect(scanTag('<DIV A=1>', 0)).toEqual({
 			name: 'div',
@@ -740,6 +760,26 @@ describe('strict start tag parsing', () => {
 		expect(parseStartTag(valid, 0)?.next).toBe(valid.length)
 		expect(parseStartTag(unterminated, 0)).toBeUndefined()
 	})
+
+	it('refuses a duplicate after many distinct names without changing the valid tag', () => {
+		// Base: e8376bf:src/core/helpers.ts:371 refuses a duplicate ASCII-lowercased name.
+		const attributes = Array.from({ length: 10_000 }, (_, index) => ({
+			name: `data-${index}`,
+			value: `${index}`,
+		}))
+		const source = attributes.map(({ name, value }) => `${name}=${value}`).join(' ')
+		const valid = `<html disabled ${source}>`
+
+		expect(parseStartTag(valid, 0)).toEqual({
+			name: 'html',
+			attributes: [{ name: 'disabled' }, ...attributes],
+			slashed: false,
+			next: valid.length,
+		})
+		for (const name of ['DISABLED', 'DATA-0', 'DATA-5000', 'DATA-9999']) {
+			expect(parseStartTag(`<html disabled ${source} ${name}=changed>`, 0)).toBeUndefined()
+		}
+	})
 })
 
 // The scheme and control floor `sanitizeURL` enforces, driven from `buildURLSafetyCorpus`
@@ -974,6 +1014,39 @@ describe('sanitizeAttributes', () => {
 		}
 		expect(sanitizeAttributes(element, SAFE_ATTRIBUTES, SAFE_URL_SCHEMES)).toEqual([
 			{ name: 'title', value: 'first' },
+		])
+	})
+
+	it('keeps first values and refusals for lowercase duplicates after many distinct names', () => {
+		// Base: e8376bf:src/core/helpers.ts:897 records names before applying the safety floor.
+		const distinct = Array.from({ length: 10_000 }, (_, index) => ({
+			name: `data-${index}`,
+			value: `${index}`,
+		}))
+		const element: ElementNode = {
+			category: 'element',
+			name: 'a',
+			attributes: [
+				{ name: 'HREF', value: 'javascript:x' },
+				{ name: 'ID' },
+				{ name: 'TITLE', value: '' },
+				...distinct,
+				{ name: 'href', value: '/safe' },
+				{ name: 'id', value: 'changed' },
+				{ name: 'title', value: 'changed' },
+				{ name: 'DATA-0', value: 'changed' },
+				{ name: 'DATA-9999', value: 'changed' },
+				{ name: 'LANG', value: 'en' },
+			],
+			children: [],
+		}
+		const allowed = new Set(['href', 'id', 'title', 'lang', ...distinct.map(({ name }) => name)])
+
+		expect(sanitizeAttributes(element, allowed, SAFE_URL_SCHEMES)).toEqual([
+			{ name: 'id' },
+			{ name: 'title', value: '' },
+			...distinct,
+			{ name: 'lang', value: 'en' },
 		])
 	})
 })

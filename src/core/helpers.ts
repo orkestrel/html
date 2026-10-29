@@ -277,6 +277,7 @@ export function decodeEntities(value: string): string {
  */
 export function scanAttributes(source: string): readonly HTMLAttribute[] {
 	const attributes: HTMLAttribute[] = []
+	const names = new Map<string, number>()
 	Iterator.from(source.matchAll(/[\s\S]/g)).reduce((next, match) => {
 		if (match.index < next) return next
 		const start = scanHTMLIndex(next, source.length, (index) =>
@@ -312,7 +313,8 @@ export function scanAttributes(source: string): readonly HTMLAttribute[] {
 			assigned && (quoted ? finish < source.length : finish > content)
 				? decodeEntities(source.slice(content, finish))
 				: undefined
-		if (!attributes.some((attribute) => attribute.name === name)) {
+		if (!names.has(name)) {
+			names.set(name, start)
 			attributes.push(value === undefined ? { name } : { name, value })
 		}
 		return finish + (quoted && finish < source.length ? 1 : 0)
@@ -345,6 +347,7 @@ export function parseStartTag(html: string, offset: number): HTMLStartTag | unde
 		readonly separated: boolean
 		readonly attribute: HTMLAttribute
 	}> = []
+	const names = new Map<string, number>()
 	for (;;) {
 		const state = steps.at(-1) ?? { next: nameEnd, separated: false }
 		const boundary = html[state.next]
@@ -399,7 +402,8 @@ export function parseStartTag(html: string, offset: number): HTMLStartTag | unde
 			return undefined
 		}
 		const attributeName = lowercaseASCII(html.slice(index, end))
-		if (steps.some((step) => step.attribute.name === attributeName)) return undefined
+		if (names.has(attributeName)) return undefined
+		names.set(attributeName, index)
 		const valueStart = scanHTMLIndex(end, html.length, (position) =>
 			HTML_WHITESPACE.includes(html[position] ?? ''),
 		)
@@ -825,12 +829,14 @@ export function sanitizeAttributes(
 ): readonly HTMLAttribute[] {
 	const outcome = attempt((): readonly HTMLAttribute[] => {
 		const kept: HTMLAttribute[] = []
-		const names: string[] = []
+		const names = new Map<string, number>()
 		const has = Reflect.get(attributes, 'has')
-		for (const attribute of node.attributes) {
+		for (const [index, attribute] of Iterator.from(node.attributes).map(
+			(entry, position): readonly [number, HTMLAttribute] => [position, entry],
+		)) {
 			const name = attribute.name.toLowerCase()
-			if (names.includes(name)) continue
-			names.push(name)
+			if (names.has(name)) continue
+			names.set(name, index)
 			if (
 				name.length === 0 ||
 				/[\s"'/:<=>]/.test(name) ||
