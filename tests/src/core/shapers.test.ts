@@ -1,6 +1,6 @@
 import type { CommentNode, DoctypeNode, HTMLAttribute, TextNode } from '@src/core'
 import type { Infer } from '@orkestrel/contract'
-import { attributeShape, commentShape, doctypeShape, parseDocument, textShape } from '@src/core'
+import { attributeShape, commentShape, doctypeShape, parseDocument, textNodeShape } from '@src/core'
 import { createContract, seededRandom } from '@orkestrel/contract'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { TEST_SEED } from '../../setup.js'
@@ -59,8 +59,8 @@ describe('attributeShape', () => {
 	})
 })
 
-describe('textShape', () => {
-	const contract = createContract(textShape)
+describe('textNodeShape', () => {
+	const contract = createContract(textNodeShape)
 
 	it('accepts a valid text node', () => {
 		expect(contract.is({ category: 'text', value: 'a & b' })).toBe(true)
@@ -96,8 +96,8 @@ describe('textShape', () => {
 	})
 
 	it('infers TextNode both ways', () => {
-		expectTypeOf<Infer<typeof textShape>>().toEqualTypeOf<TextNode>()
-		expectTypeOf<TextNode>().toEqualTypeOf<Infer<typeof textShape>>()
+		expectTypeOf<Infer<typeof textNodeShape>>().toEqualTypeOf<TextNode>()
+		expectTypeOf<TextNode>().toEqualTypeOf<Infer<typeof textNodeShape>>()
 	})
 })
 

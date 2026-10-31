@@ -34,13 +34,13 @@ export const attributeShape = objectShape({
  * @example
  * ```ts
  * import { createContract } from '@orkestrel/contract'
- * import { textShape } from '@orkestrel/html'
+ * import { textNodeShape } from '@orkestrel/html'
  *
- * const text = createContract(textShape)
+ * const text = createContract(textNodeShape)
  * text.is({ category: 'text', value: 'a & b' }) // true
  * ```
  */
-export const textShape = objectShape({
+export const textNodeShape = objectShape({
 	category: literalShape(['text']),
 	value: stringShape(),
 })

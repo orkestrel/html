@@ -20,7 +20,7 @@ A dual-axis index into this repository's guides — by concept, and by directory
 `@orkestrel/contract` — this package's sole runtime dependency. It documents
 **that package's** surface (guards, combinators, parsers, and the shape DSL), not
 anything sourced in this repo; it is kept here so a reader of the HTML AST guards
-and leaf-node shapes (`isHTMLNode`, `textShape`, …), and of the contracts a consumer
+and leaf-node shapes (`isHTMLNode`, `textNodeShape`, …), and of the contracts a consumer
 compiles from those shapes, can see the primitives they are built from without leaving
 this guide set.
 
